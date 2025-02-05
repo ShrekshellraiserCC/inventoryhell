@@ -23,7 +23,7 @@ local coordLib = require("Coordinates")
 
 ---@class Reserve
 ---@field items table<ItemCoordinate,ReserveItem>
----@field freeSlots InventoryCoordinate[]
+---@field emptySlots EmptySlotStorage
 ---@field allSlots table<InventoryCoordinate,boolean>
 ---@field defragLocks table<ItemCoordinate,boolean>
 ---@field inventoryLUT table<InventoryCoordinate,ItemCoordinate>
@@ -53,7 +53,7 @@ end
 ---@param coord InventoryCoordinate
 function Reserve__index:_removeSlot(coord)
     -- check if free
-    removeValueFromArray(self.freeSlots, coord)
+    self.emptySlots.clear(coord)
     self.allSlots[coord] = nil
     self.inventoryLUT[coord] = nil
     -- iterate all items
@@ -89,19 +89,19 @@ function Reserve__index:_setSlot(coord, data)
     self:_removeSlot(coord)
     self.allSlots[coord] = true
     if data == nil then
-        self.freeSlots[#self.freeSlots + 1] = coord
+        self.emptySlots.free(coord)
         return
     end
     local name = data.name
     local nbt = data.nbt or Item.NO_NBT
-    local icoord = coordLib.ItemCoordinate(name, nbt)
-    self.inventoryLUT[coord] = icoord
-    local ritem = self.items[icoord] or {}
-    local ditem = detailedDataCache[icoord]
+    local itemCoord = coordLib.ItemCoordinate(name, nbt)
+    self.inventoryLUT[coord] = itemCoord
+    local ritem = self.items[itemCoord] or {}
+    local ditem = detailedDataCache[itemCoord]
     if not ditem then
         local periph, slot = coordLib.splitInventoryCoordinate(coord)
         ditem = peripheral.call(periph, "getItemDetail", slot)
-        detailedDataCache[icoord] = ditem
+        detailedDataCache[itemCoord] = ditem
     end
     self:_initReservedItem(ritem, ditem, data.count)
     ritem.slotCounts[coord] = data.count
@@ -110,9 +110,9 @@ function Reserve__index:_setSlot(coord, data)
     else
         ritem.partSlots[#ritem.partSlots + 1] = coord
     end
-    self.items[icoord] = ritem
+    self.items[itemCoord] = ritem
     if ritem.total == 0 then
-        self.items[icoord] = nil
+        self.items[itemCoord] = nil
     end
 end
 
@@ -181,7 +181,6 @@ end
 ---Clear all slots from this Reserve
 function Reserve__index:clear()
     self.allSlots = {}
-    self.freeSlots = {}
     self.items = {}
     self.inventoryLUT = {}
     self.defragLocks = {}
@@ -215,7 +214,6 @@ end
 ---Absorb the contents of another Reserve (emptying it)
 ---@param r Reserve
 function Reserve__index:absorb(r)
-    mergeIntoArray(r.freeSlots, self.freeSlots)
     mergeIntoArray(r.allSlots, self.allSlots)
     for coord, src in pairs(r.items) do
         local ditem = src.info
@@ -244,14 +242,8 @@ end
 
 ---Yield for a free slot to be available
 ---@return InventoryCoordinate
-function Reserve__index:_reserveFreeSlot()
-    if self.freeSlots[1] then
-        self.allSlots[self.freeSlots[1]] = nil
-        return table.remove(self.freeSlots, 1)
-    end
-    error("No slots free!")
-    os.pullEvent("slot_freed") -- TODO change this
-    return self:_reserveFreeSlot()
+function Reserve__index:_allocateSlot()
+    return self.emptySlots.allocate()
 end
 
 ---Remove a set of values from an array
@@ -314,7 +306,7 @@ function Reserve__index:_transfer(icoord, count, r)
             self:_transferSlot(srcItem, dstItem, r, partial, slotCount)
         else
             -- This slot contains too many items and must be broken up
-            local free = self:_reserveFreeSlot()
+            local free = self:_allocateSlot()
             local freeInv, freeSlot = coordLib.splitInventoryCoordinate(free)
             local srcInv, srcSlot = coordLib.splitInventoryCoordinate(partial)
             local i = peripheral.call(srcInv, "pushItems", freeInv, srcSlot, transferred - count, freeSlot)
@@ -332,7 +324,7 @@ function Reserve__index:_transfer(icoord, count, r)
             self:_transferSlot(srcItem, dstItem, r, full, slotCount)
         else
             -- This slot contains too many items and must be broken up\
-            local free = self:_reserveFreeSlot()
+            local free = self:_allocateSlot()
             local freeInv, freeSlot = coordLib.splitInventoryCoordinate(free)
             local srcInv, srcSlot = coordLib.splitInventoryCoordinate(full)
             local i = peripheral.call(srcInv, "pushItems", freeInv, srcSlot, count - transferred, freeSlot)
@@ -350,7 +342,7 @@ end
 ---@return Reserve?
 function Reserve__index:split(desc, count)
     local matches = searchForItems(desc, self.items)
-    local r = Reserve.empty()
+    local r = Reserve.empty(self.emptySlots)
     local transferred = 0
     for _, item in ipairs(matches) do
         transferred = transferred + self:_transfer(item, count - transferred, r)
@@ -482,7 +474,7 @@ end
 ---@param limit integer?
 ---@return integer
 function Reserve__index:pullItems(from, slot, limit)
-    local emptySlot = self:_reserveFreeSlot()
+    local emptySlot = self:_allocateSlot()
     local inv, tSlot = coordLib.splitInventoryCoordinate(emptySlot)
     local moved = peripheral.call(inv, "pullItems", from, slot, limit, tSlot)
     local info = peripheral.call(inv, "getItemDetail", tSlot)
@@ -533,7 +525,6 @@ end
 
 ---Create a reserve from a list of inventories (freshly scanning its contents)
 ---@param invs InventoryCompatible[]
----@param stale boolean? Do not scan the inventory contents upon creation
 ---@return Reserve
 function Reserve.fromInventories(invs, stale)
     local res = Reserve.empty()
@@ -545,15 +536,64 @@ function Reserve.fromInventories(invs, stale)
 end
 
 ---Create an empty Reserve
+---@param ess EmptySlotStorage?
 ---@return Reserve
-function Reserve.empty()
+function Reserve.empty(ess)
     local res = setmetatable({}, Reserve)
     res.allSlots = {}
-    res.freeSlots = {}
+    res.emptySlots = ess or Reserve.emptySlotStorage()
     res.items = {}
     res.defragLocks = {}
     res.inventoryLUT = {}
     return res
+end
+
+local lastEssId = 0
+---@return EmptySlotStorage
+function Reserve.emptySlotStorage()
+    lastEssId = lastEssId + 1
+    ---@class EmptySlotStorage
+    local ess = {
+        id = lastEssId
+    }
+    ---@class EmptySlotStorage
+    local ess__index = {}
+    ---@type table<InventoryCoordinate,boolean>
+    local slots = {}
+    ess.slots = slots
+
+    ---@param s InventoryCoordinate
+    function ess__index.free(s)
+        slots[s] = true
+        os.queueEvent("ess_slot_freed", ess.id)
+    end
+
+    ---Get a free slot that is currently available,
+    --- or yield until one is available
+    ---@return InventoryCoordinate
+    function ess__index.allocate()
+        local slot = next(slots)
+        if slot then
+            slots[slot] = nil
+            return slot
+        end
+        while true do
+            local _, id = os.pullEvent("ess_slot_freed")
+            if id == ess.id then break end
+        end
+        return ess.allocate()
+    end
+
+    function ess__index.clear(s)
+        slots[s] = nil
+    end
+
+    function ess__index.clearAll()
+        slots = {}
+    end
+
+    -- wanted to make it serializable :)
+    return setmetatable(ess, { __index = ess__index })
 end
 
 return Reserve
