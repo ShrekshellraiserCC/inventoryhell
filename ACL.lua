@@ -16,21 +16,14 @@ function lib.wrap(invList, resList, workList)
     local this = {}
     this.scheduler = TaskLib.Scheduler()
 
-    local invReserve = Reserve.fromInventories(invList, true)
-    local scanTask = TaskLib.Task.new(invReserve:getScanFuncs())
-    this.scheduler.queueTask(scanTask:setCallback(function(moved)
-        this.scheduler.queueTask(TaskLib.Task.new(invReserve:getDefragFuncs()))
-    end))
+    local invReserve = Reserve.fromInventories(invList, false)
+    invReserve:defrag()
 
     local turtlePort = 777
     local wmodem = peripheral.find("modem", function(name, wrapped)
         return not wrapped.isWireless()
     end)
     wmodem.open(turtlePort)
-
-    local chest = "minecraft:chest_0"
-    ---@type Inventory
-    local tempPushSource = peripheral.wrap(chest)
 
     ---@type table<string,boolean>
     local freeTurtles = {}
@@ -104,9 +97,7 @@ function lib.wrap(invList, resList, workList)
     function PushTask__index:distributeToSlots(to, item, slots, limit)
         for i, slot in ipairs(slots) do
             self.funcs[#self.funcs + 1] = function()
-                -- TODO change this out
-                sleep(0.5)
-                return tempPushSource.pushItems(to, item, limit, slot)
+                return invReserve:pushItems(to, item, limit, slot)
             end
         end
         return self
@@ -152,8 +143,7 @@ function lib.wrap(invList, resList, workList)
     ---@return PushTask
     function PullTask.fromSlot(from, slot, limit)
         local f = function()
-            -- TODO change this out
-            return tempPushSource.pullItems(from, slot, limit)
+            return invReserve:pullItems(from, slot, limit)
         end
         return setmetatable(TaskLib.Task.new({ f }), PullTask)
     end

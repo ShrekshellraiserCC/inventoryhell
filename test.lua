@@ -1,7 +1,8 @@
 local lib = require("ACL")
+local ID = require("ItemDescriptor")
 
--- sleep(3)
-local inv = lib.wrap({ "minecraft:chest_0", "minecraft:chest_1" }, {}, {})
+sleep(3)
+local inv = lib.wrap({ "minecraft:chest_1" }, {}, {})
 
 local turtle = "turtle_0"
 
@@ -14,6 +15,13 @@ term.setCursorPos(1, 10)
 --     f.write(textutils.serialise(self))
 --     f.close()
 -- end }):addSubtask(TaskLib.Task.new(f))
+
+local ctask = inv.TurtleCraftTask.craft(
+    { ID.fromName("minecraft:cobblestone") },
+    { 1, 1, 1, 1, nil, 1, 1, 1, 1 },
+    64
+)
+ctask:queue()
 
 os.queueEvent("dummy")
 inv.run()

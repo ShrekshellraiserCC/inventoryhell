@@ -25,6 +25,8 @@ local coordLib = require("Coordinates")
 ---@field items table<ItemCoordinate,ReserveItem>
 ---@field freeSlots InventoryCoordinate[]
 ---@field allSlots table<InventoryCoordinate,boolean>
+---@field defragLocks table<ItemCoordinate,boolean>
+---@field inventoryLUT table<InventoryCoordinate,ItemCoordinate>
 local Reserve__index = {}
 local Reserve = { __index = Reserve__index }
 
@@ -52,6 +54,8 @@ end
 function Reserve__index:_removeSlot(coord)
     -- check if free
     removeValueFromArray(self.freeSlots, coord)
+    self.allSlots[coord] = nil
+    self.inventoryLUT[coord] = nil
     -- iterate all items
     for icoord, v in pairs(self.items) do
         local count = v.slotCounts[coord]
@@ -59,6 +63,7 @@ function Reserve__index:_removeSlot(coord)
             -- this slot used to contain this item
             removeValueFromArray(v.fullSlots, coord)
             removeValueFromArray(v.partSlots, coord)
+            v.slotCounts[coord] = nil
             v.total = v.total - count
             return
         end
@@ -82,6 +87,7 @@ end
 ---@param data CCItemInfo?
 function Reserve__index:_setSlot(coord, data)
     self:_removeSlot(coord)
+    self.allSlots[coord] = true
     if data == nil then
         self.freeSlots[#self.freeSlots + 1] = coord
         return
@@ -89,6 +95,7 @@ function Reserve__index:_setSlot(coord, data)
     local name = data.name
     local nbt = data.nbt or Item.NO_NBT
     local icoord = coordLib.ItemCoordinate(name, nbt)
+    self.inventoryLUT[coord] = icoord
     local ritem = self.items[icoord] or {}
     local ditem = detailedDataCache[icoord]
     if not ditem then
@@ -138,22 +145,25 @@ end
 ---Defrag a given item
 ---@param ritem ReserveItem
 function Reserve__index:_defragItem(ritem)
+    local itemCoord = coordLib.ItemCoordinate(ritem.info.name, ritem.info.nbt)
+    if self.defragLocks[itemCoord] then return end
+    self.defragLocks[itemCoord] = true
     while #ritem.partSlots > 1 do
         local from = ritem.partSlots[1]
+        local fromCount = ritem.slotCounts[from]
         local to = ritem.partSlots[2]
-        self:_removeSlot(from)
+        local toCount = ritem.slotCounts[to]
         local fperiph, fslot = coordLib.splitInventoryCoordinate(from)
         local tperiph, tslot = coordLib.splitInventoryCoordinate(to)
-        peripheral.call(fperiph, "pushItems", tperiph, fslot, nil, tslot)
-        local detail = peripheral.call(fperiph, "list", fslot)
-        print(fperiph, detail)
-        local fromListing = assert(detail,
-            ("Invalid peripheral `%s`"):format(fperiph))
-        self:_setSlot(from, fromListing[fslot])
-        local toListing = assert(peripheral.call(tperiph, "list", tslot),
-            ("Invalid peripheral `%s`"):format(tperiph))
-        self:_setSlot(to, toListing[tslot])
+        local maxCount = ritem.info.maxCount
+        local predMove = math.min(fromCount, maxCount - toCount)
+        self:_startTransaction(from, itemCoord, fromCount - predMove)
+        self:_startTransaction(to, itemCoord, toCount + predMove)
+        local moved = peripheral.call(fperiph, "pushItems", tperiph, fslot, nil, tslot)
+        self:_endTransaction(from, itemCoord, fromCount - moved)
+        self:_endTransaction(to, itemCoord, toCount + moved)
     end
+    self.defragLocks[itemCoord] = nil
 end
 
 ---Get a list of functions to execute in parallel to defrag the slots this Reserve contains
@@ -173,6 +183,8 @@ function Reserve__index:clear()
     self.allSlots = {}
     self.freeSlots = {}
     self.items = {}
+    self.inventoryLUT = {}
+    self.defragLocks = {}
 end
 
 ---Merge contents of from into to to, without duplicates
@@ -237,6 +249,7 @@ function Reserve__index:_reserveFreeSlot()
         self.allSlots[self.freeSlots[1]] = nil
         return table.remove(self.freeSlots, 1)
     end
+    error("No slots free!")
     os.pullEvent("slot_freed") -- TODO change this
     return self:_reserveFreeSlot()
 end
@@ -348,13 +361,134 @@ function Reserve__index:split(desc, count)
     self:absorb(r)
 end
 
+---Find a slot in this reserve that is full of matching items
+---@param itemList ItemCoordinate[]
+---@return ItemCoordinate? itemCoord
+---@return InventoryCoordinate? invCoord
+function Reserve__index:_findFullSlot(itemList)
+    for _, itemCoord in ipairs(itemList) do
+        local ritem = self.items[itemCoord]
+        local _, fullCoord = next(ritem.fullSlots)
+        if fullCoord then
+            return itemCoord, fullCoord
+        end
+    end
+end
+
+---Find a slot in this reserve that has at least count of matching items
+---@param itemList ItemCoordinate[]
+---@param count integer
+---@return ItemCoordinate itemCoord
+---@return InventoryCoordinate invCoord
+---@return integer count
+function Reserve__index:_findSlotWithClosestCount(itemList, count)
+    local maxFound
+    local maxItem
+    local maxCount = 0
+    for _, itemCoord in ipairs(itemList) do
+        local ritem = self.items[itemCoord]
+        for _, partCoord in ipairs(ritem.partSlots) do
+            local icount = ritem.slotCounts[partCoord]
+            if icount >= count then
+                return itemCoord, partCoord, count
+            elseif icount > maxCount then
+                maxFound = partCoord
+                maxCount = icount
+                maxItem = itemCoord
+            end
+        end
+    end
+    return maxItem, maxFound, maxCount
+end
+
+--- TODO follow these rules when modifying the contents of the Reserve
+--- - If a slot is *losing* items, predict the loss and update the total
+--- - If a slot is *gaining* items, make no changes until after the transaction
+--- - If a slot is going to be empty, do not add it to the empty cache until afterwards
+
+---Start a loss transaction over a slot
+---@param invCoord InventoryCoordinate
+---@param itemCoord ItemCoordinate
+---@param predCount integer
+function Reserve__index:_startTransaction(invCoord, itemCoord, predCount)
+    local ritem = self.items[itemCoord]
+    local slotCount = ritem.slotCounts[invCoord] or 0
+    local diff = predCount - slotCount
+    if diff > 0 then
+        -- gain transaction, only update afterwards
+        return
+    end
+    -- loss transaction, guess the loss
+    if predCount == 0 then
+        self:_removeSlot(invCoord)
+    else
+        ritem.info.count = predCount
+        self:_setSlot(invCoord, ritem.info)
+    end
+end
+
+---End a loss transaction over a slot
+---@param invCoord InventoryCoordinate
+---@param itemCoord ItemCoordinate
+---@param realCount integer
+function Reserve__index:_endTransaction(invCoord, itemCoord, realCount)
+    local ritem = self.items[itemCoord]
+    if realCount == 0 then
+        -- make sure the empty slot is now part of the emptySlot list
+        self:_setSlot(invCoord, nil)
+    else
+        ritem.info.count = realCount
+        self:_setSlot(invCoord, ritem.info)
+    end
+end
+
 ---Push items from this Reserve into some inventory
 ---@param to string
 ---@param item ItemDescriptor
 ---@param limit integer?
 ---@param toSlot integer?
+---@return integer
 function Reserve__index:pushItems(to, item, limit, toSlot)
+    local matches = searchForItems(item, self.items)
+    if #matches == 0 then
+        print("No matches?")
+        return 0
+    end
+    -- check for a full slot to push from
+    local itemCoord, fullCoord = self:_findFullSlot(matches)
+    local inv, slot, slotCount
+    if fullCoord then
+        inv, slot = coordLib.splitInventoryCoordinate(fullCoord)
+        slotCount = self.items[itemCoord].info.maxCount
+    else
+        itemCoord, fullCoord, slotCount = self:_findSlotWithClosestCount(matches, limit or 64)
+        inv, slot = coordLib.splitInventoryCoordinate(fullCoord)
+    end
+    local ritem = self.items[itemCoord]
+    local startCount = ritem.slotCounts[fullCoord]
+    local predictedMove = math.min(limit, slotCount)
+    local newCount = startCount - predictedMove
+    self:_startTransaction(fullCoord, itemCoord, newCount)
+    local moved = peripheral.call(inv, "pushItems", to, slot, limit, toSlot)
+    local realNewCount = startCount - moved
+    self:_endTransaction(fullCoord, itemCoord, realNewCount)
+    self:_defragItem(ritem)
+    return moved
+end
 
+---Pull Items from an inventory into this reserve
+---@param from string
+---@param slot integer
+---@param limit integer?
+---@return integer
+function Reserve__index:pullItems(from, slot, limit)
+    local emptySlot = self:_reserveFreeSlot()
+    local inv, tSlot = coordLib.splitInventoryCoordinate(emptySlot)
+    local moved = peripheral.call(inv, "pullItems", from, slot, limit, tSlot)
+    local info = peripheral.call(inv, "getItemDetail", tSlot)
+    self:_setSlot(emptySlot, info)
+    self:_defragItem(self.items[coordLib.ItemCoordinate(info.name, info.nbt)])
+    return moved
 end
 
 ---Execute a table of functions in batches
@@ -417,6 +551,8 @@ function Reserve.empty()
     res.allSlots = {}
     res.freeSlots = {}
     res.items = {}
+    res.defragLocks = {}
+    res.inventoryLUT = {}
     return res
 end
 

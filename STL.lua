@@ -120,7 +120,7 @@ local function removeIndiciesFromTable(idx, tab)
     end
 end
 
-local TASK_LIMIT = 2
+local TASK_LIMIT = 128
 local function Scheduler()
     ---@type TaskThreadDescriptor[]
     local executingThreads = {}
