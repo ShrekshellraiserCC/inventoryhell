@@ -22,6 +22,7 @@ local coordLib = require("Coordinates")
 ---@field partSlots InventoryCoordinate[]
 
 ---@class Reserve
+---@field _transactions table<number,table>
 ---@field items table<ItemCoordinate,ReserveItem>
 ---@field emptySlots EmptySlotStorage
 ---@field allSlots table<InventoryCoordinate,boolean>
@@ -29,7 +30,6 @@ local coordLib = require("Coordinates")
 ---@field inventoryLUT table<InventoryCoordinate,ItemCoordinate>
 local Reserve__index = {}
 local Reserve = { __index = Reserve__index }
-
 
 ---@alias InventoryCompatible string
 
@@ -157,11 +157,11 @@ function Reserve__index:_defragItem(ritem)
         local tperiph, tslot = coordLib.splitInventoryCoordinate(to)
         local maxCount = ritem.info.maxCount
         local predMove = math.min(fromCount, maxCount - toCount)
-        self:_startTransaction(from, itemCoord, fromCount - predMove)
-        self:_startTransaction(to, itemCoord, toCount + predMove)
+        local fid = self:_startTransaction(from, itemCoord, -predMove)
+        local tid = self:_startTransaction(to, itemCoord, predMove)
         local moved = peripheral.call(fperiph, "pushItems", tperiph, fslot, nil, tslot)
-        self:_endTransaction(from, itemCoord, fromCount - moved)
-        self:_endTransaction(to, itemCoord, toCount + moved)
+        self:_endTransaction(fid, -moved)
+        self:_endTransaction(tid, moved)
     end
     self.defragLocks[itemCoord] = nil
 end
@@ -214,14 +214,8 @@ end
 ---Absorb the contents of another Reserve (emptying it)
 ---@param r Reserve
 function Reserve__index:absorb(r)
-    mergeIntoArray(r.allSlots, self.allSlots)
-    for coord, src in pairs(r.items) do
-        local ditem = src.info
-        self:_initReservedItem(src, ditem, 0)
-        local dst = self.items[coord]
-        mergeIntoTable(src.slotCounts, dst.slotCounts)
-        mergeIntoArray(src.fullSlots, dst.fullSlots)
-        mergeIntoArray(src.partSlots, dst.partSlots)
+    for coord in pairs(r.allSlots) do
+        r:_transferSlot(coord, self)
     end
     r:clear()
 end
@@ -255,84 +249,67 @@ local function removeValuesFromArray(t, vs)
     end
 end
 
----Transfer a slot from this Reserve to another
---- Does NOT remove from partSlots or fullSlots on the source Reserve
----@param srcItem ReserveItem
----@param dstItem ReserveItem
----@param r Reserve
+---Hand over a slot under this Reserve's control to another Reserve
 ---@param slot InventoryCoordinate
----@param count integer
-function Reserve__index:_transferSlot(srcItem, dstItem, r, slot, count)
-    removeValueFromArray(srcItem.partSlots, slot)
-    removeValueFromArray(srcItem.fullSlots, slot)
-    if count < srcItem.info.maxCount then
-        -- Update partSlots
-        dstItem.partSlots[#dstItem.partSlots + 1] = slot
-    else
-        dstItem.fullSlots[#dstItem.fullSlots + 1] = slot
-    end
-    -- Update counts
-    srcItem.total = srcItem.total - count
-    dstItem.total = dstItem.total + count
-    -- Update allSlots
-    self.allSlots[slot] = nil
-    r.allSlots[slot] = true
-    -- Update slotCounts
-    srcItem.slotCounts[slot] = nil
-    dstItem.slotCounts[slot] = count
+---@param to Reserve
+function Reserve__index:_transferSlot(slot, to)
+    local itemcoord = assert(self.inventoryLUT[slot], ("Cannot transfer slot %s not in this Reserve!"):format(slot))
+    local ritem = self.items[itemcoord]
+    local info = ritem.info
+    local count = ritem.slotCounts[slot]
+    self:_removeSlot(slot)
+    info.count = count
+    to:_setSlot(slot, info)
 end
 
----Transfer count of item from this Reserve to reserve r
---- Returns actual count transferred
----@param icoord ItemCoordinate
----@param count integer
----@param r Reserve
+---@param to Reserve
+---@param icoord InventoryCoordinate
+---@param limit integer
 ---@return integer
-function Reserve__index:_transfer(icoord, count, r)
-    local srcItem = self.items[icoord]
-    if not srcItem then return 0 end
-    local transferred = 0
-    local dstItem = r.items[icoord] or {}
-    r.items[icoord] = dstItem
-    r:_initReservedItem(dstItem, srcItem.info, 0)
-    while transferred < count do
-        local _, partial = next(srcItem.partSlots)
-        if not partial then break end
-        local slotCount = srcItem.slotCounts[partial]
-        if slotCount <= count then
-            -- This slot can directly be transferred over
-            -- keep track of these slots so they can be removed correctly
-            transferred = transferred + count
-            self:_transferSlot(srcItem, dstItem, r, partial, slotCount)
-        else
-            -- This slot contains too many items and must be broken up
-            local free = self:_allocateSlot()
-            local freeInv, freeSlot = coordLib.splitInventoryCoordinate(free)
-            local srcInv, srcSlot = coordLib.splitInventoryCoordinate(partial)
-            local i = peripheral.call(srcInv, "pushItems", freeInv, srcSlot, transferred - count, freeSlot)
-            self:_transferSlot(srcItem, dstItem, r, free, i)
+function Reserve__index:_doOneTransferIter(to, icoord, limit)
+    local ritem = self.items[icoord]
+    if not ritem then return 0 end
+    if limit >= ritem.info.maxCount then
+        local fslot = ritem.fullSlots[1]
+        if fslot then
+            self:_transferSlot(fslot, to)
+            return ritem.info.maxCount
         end
+        local pslot = ritem.partSlots[1]
+        local slotCount = ritem.slotCounts[pslot]
+        self:_transferSlot(pslot, to)
+        return slotCount
     end
-    while transferred < count do
-        local _, full = next(srcItem.fullSlots)
-        if not full then break end
-        local slotCount = srcItem.slotCounts[full]
-        -- keep track of these slots so they can be removed correctly
-        if slotCount <= count then
-            -- This slot can directly be transferred over
-            transferred = transferred + count
-            self:_transferSlot(srcItem, dstItem, r, full, slotCount)
-        else
-            -- This slot contains too many items and must be broken up\
-            local free = self:_allocateSlot()
-            local freeInv, freeSlot = coordLib.splitInventoryCoordinate(free)
-            local srcInv, srcSlot = coordLib.splitInventoryCoordinate(full)
-            local i = peripheral.call(srcInv, "pushItems", freeInv, srcSlot, count - transferred, freeSlot)
-            self:_transferSlot(srcItem, dstItem, r, free, i)
-            srcItem.partSlots[#srcItem.partSlots + 1] = full
-        end
+    local invCoord = ritem.fullSlots[1] or ritem.partSlots[1]
+    local inv, slot = coordLib.splitInventoryCoordinate(invCoord)
+    local slotCount = ritem.slotCounts[invCoord]
+    local predMove = math.min(slotCount, limit)
+    local toCoord = to:_allocateSlot()
+    local tinv, tslot = coordLib.splitInventoryCoordinate(toCoord)
+    local sid = self:_startTransaction(invCoord, icoord, -predMove)
+    local tid = to:_startTransaction(toCoord, icoord, predMove)
+    local moved = peripheral.call(inv, "pushItems", tinv, slot, limit, tslot)
+    self:_endTransaction(sid, -moved)
+    to:_endTransaction(tid, moved)
+    return moved
+end
+
+---Transfer a set amount of items from this reserve to the Reserve to
+---@param to Reserve
+---@param desc ItemDescriptor
+---@param limit integer
+---@return integer moved
+function Reserve__index:transfer(to, desc, limit)
+    local matches = searchForItems(desc, self.items)
+    local moved = 0
+    for _, match in ipairs(matches) do
+        repeat
+            local imoved = self:_doOneTransferIter(to, match, limit - moved)
+            moved = moved + imoved
+        until imoved == 0 or moved == limit
+        if moved == limit then break end
     end
-    return transferred
+    return moved
 end
 
 ---Create a new reserve with a set amount of items from this one
@@ -341,16 +318,18 @@ end
 ---@param count integer
 ---@return Reserve?
 function Reserve__index:split(desc, count)
-    local matches = searchForItems(desc, self.items)
     local r = Reserve.empty(self.emptySlots)
-    local transferred = 0
-    for _, item in ipairs(matches) do
-        transferred = transferred + self:_transfer(item, count - transferred, r)
-        if transferred == count then
-            return r
-        end
+    local moved = self:transfer(r, desc, count)
+    if moved ~= count then
+        self:absorb(r)
+        return
     end
-    self:absorb(r)
+    return r
+end
+
+---Return control of this Reserve's slots back to its parent (from :split())
+function Reserve__index:free()
+
 end
 
 ---Find a slot in this reserve that is full of matching items
@@ -398,43 +377,72 @@ end
 --- - If a slot is *gaining* items, make no changes until after the transaction
 --- - If a slot is going to be empty, do not add it to the empty cache until afterwards
 
+local lastTransactionID = 0
 ---Start a loss transaction over a slot
 ---@param invCoord InventoryCoordinate
 ---@param itemCoord ItemCoordinate
----@param predCount integer
-function Reserve__index:_startTransaction(invCoord, itemCoord, predCount)
+---@param predMove integer
+---@return integer tid
+function Reserve__index:_startTransaction(invCoord, itemCoord, predMove)
     local ritem = self.items[itemCoord]
-    local slotCount = ritem.slotCounts[invCoord] or 0
-    local diff = predCount - slotCount
-    if diff > 0 then
-        -- gain transaction, only update afterwards
-        return
+    lastTransactionID = lastTransactionID + 1
+    local tid = lastTransactionID
+    local transaction = {
+        predMove = 0,
+        invCoord = invCoord,
+        itemCoord = itemCoord
+    }
+    self._transactions[tid] = transaction
+    local slotCount = 0
+    if ritem then
+        slotCount = ritem.slotCounts[invCoord] or 0
     end
+    if predMove > 0 then
+        -- gain transaction, only update afterwards
+        return tid
+    end
+    transaction.predMove = predMove
     -- loss transaction, guess the loss
-    if predCount == 0 then
+    local predTotal = slotCount + predMove
+    if predTotal == 0 then
         self:_removeSlot(invCoord)
     else
-        ritem.info.count = predCount
-        self:_setSlot(invCoord, ritem.info)
+        detailedDataCache[itemCoord].count = predTotal
+        self:_setSlot(invCoord, detailedDataCache[itemCoord])
     end
+    return tid
 end
 
 ---End a loss transaction over a slot
----@param invCoord InventoryCoordinate
----@param itemCoord ItemCoordinate
----@param realCount integer
-function Reserve__index:_endTransaction(invCoord, itemCoord, realCount)
+---@param tid integer
+---@param realMove integer
+function Reserve__index:_endTransaction(tid, realMove)
+    local transaction = self._transactions[tid]
+    if not transaction then
+        error(("Invalid transaction ID %s"):format(tid), 1)
+    end
+    local itemCoord, invCoord = transaction.itemCoord, transaction.invCoord
+    self._transactions[tid] = nil
+    local predMove = transaction.predMove
+    local oldCount = 0
     local ritem = self.items[itemCoord]
+    if ritem then
+        oldCount = ritem.slotCounts[invCoord] or oldCount
+    end
+    local realCount = oldCount - predMove + realMove
     if realCount == 0 then
         -- make sure the empty slot is now part of the emptySlot list
         self:_setSlot(invCoord, nil)
     else
-        ritem.info.count = realCount
-        self:_setSlot(invCoord, ritem.info)
+        local info = detailedDataCache[itemCoord]
+        info.count = realCount
+        self:_setSlot(invCoord, info)
     end
 end
 
 ---Push items from this Reserve into some inventory
+--- * Behaves like Inventory.pushItems
+--- * Moves up to a stack of items at once
 ---@param to string
 ---@param item ItemDescriptor
 ---@param limit integer?
@@ -443,7 +451,6 @@ end
 function Reserve__index:pushItems(to, item, limit, toSlot)
     local matches = searchForItems(item, self.items)
     if #matches == 0 then
-        print("No matches?")
         return 0
     end
     -- check for a full slot to push from
@@ -457,18 +464,18 @@ function Reserve__index:pushItems(to, item, limit, toSlot)
         inv, slot = coordLib.splitInventoryCoordinate(fullCoord)
     end
     local ritem = self.items[itemCoord]
-    local startCount = ritem.slotCounts[fullCoord]
     local predictedMove = math.min(limit, slotCount)
-    local newCount = startCount - predictedMove
-    self:_startTransaction(fullCoord, itemCoord, newCount)
+    local tid = self:_startTransaction(fullCoord, itemCoord, -predictedMove)
     local moved = peripheral.call(inv, "pushItems", to, slot, limit, toSlot)
-    local realNewCount = startCount - moved
-    self:_endTransaction(fullCoord, itemCoord, realNewCount)
+    self:_endTransaction(tid, -moved)
     self:_defragItem(ritem)
     return moved
 end
 
 ---Pull Items from an inventory into this reserve
+--- * Same behavior as Inventory.pullItems
+--- * As long as an empty slot is available
+---   a whole stack (or limit) will be pulled.
 ---@param from string
 ---@param slot integer
 ---@param limit integer?
@@ -526,12 +533,10 @@ end
 ---Create a reserve from a list of inventories (freshly scanning its contents)
 ---@param invs InventoryCompatible[]
 ---@return Reserve
-function Reserve.fromInventories(invs, stale)
+function Reserve.fromInventories(invs)
     local res = Reserve.empty()
     res:addInventories(invs)
-    if not stale then
-        res:scan()
-    end
+    res:scan()
     return res
 end
 
@@ -545,6 +550,7 @@ function Reserve.empty(ess)
     res.items = {}
     res.defragLocks = {}
     res.inventoryLUT = {}
+    res._transactions = {}
     return res
 end
 
