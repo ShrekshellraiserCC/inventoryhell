@@ -10,31 +10,19 @@
 ---@class InventoryCoordinate : string
 ---@class ItemCoordinate : string
 
-local Item = require("ItemDescriptor")
-
+local ID = require("ItemDescriptor")
 local coordLib = require("Coordinates")
+local shrexpect = require("shrexpect")
 
----@class ReserveItem
----@field info CCItemInfo
----@field total integer
----@field slotCounts table<InventoryCoordinate,number>
----@field fullSlots InventoryCoordinate[]
----@field partSlots InventoryCoordinate[]
-
----@class Reserve
----@field _transactions table<number,table>
----@field items table<ItemCoordinate,ReserveItem>
----@field emptySlots EmptySlotStorage
----@field allSlots table<InventoryCoordinate,boolean>
----@field defragLocks table<ItemCoordinate,boolean>
----@field inventoryLUT table<InventoryCoordinate,ItemCoordinate>
-local Reserve__index = {}
-local Reserve = { __index = Reserve__index }
-
----@alias InventoryCompatible string
 
 ---@type table<ItemCoordinate,CCItemInfo>
 local detailedDataCache = {}
+---@type table<ItemCoordinate,boolean>
+local detailedCacheLock = {}
+
+local cacheFinishEvent = "DETAILED_CACHE_FINISH"
+local itemLockFreeEvent = "ITEM_LOCK_FREE"
+local scanLockFreeEvent = "SCAN_LOCK_FREE"
 
 ---Remove a value from an array
 ---@generic T
@@ -47,143 +35,6 @@ local function removeValueFromArray(t, v)
             return
         end
     end
-end
-
----Completely remove a slot from this Reserve
----@param coord InventoryCoordinate
-function Reserve__index:_removeSlot(coord)
-    -- check if free
-    self.emptySlots.clear(coord)
-    self.allSlots[coord] = nil
-    self.inventoryLUT[coord] = nil
-    -- iterate all items
-    for icoord, v in pairs(self.items) do
-        local count = v.slotCounts[coord]
-        if count then
-            -- this slot used to contain this item
-            removeValueFromArray(v.fullSlots, coord)
-            removeValueFromArray(v.partSlots, coord)
-            v.slotCounts[coord] = nil
-            v.total = v.total - count
-            return
-        end
-    end
-end
-
----Initialize a possibly empty ReserveItem
----@param ritem ReserveItem
----@param ditem CCItemInfo
----@param count integer
-function Reserve__index:_initReservedItem(ritem, ditem, count)
-    ritem.info = ritem.info or ditem
-    ritem.total = (ritem.total or 0) + count
-    ritem.slotCounts = ritem.slotCounts or {}
-    ritem.partSlots = ritem.partSlots or {}
-    ritem.fullSlots = ritem.fullSlots or {}
-end
-
----Set a specific slot to the data provided
----@param coord InventoryCoordinate
----@param data CCItemInfo?
-function Reserve__index:_setSlot(coord, data)
-    self:_removeSlot(coord)
-    self.allSlots[coord] = true
-    if data == nil then
-        self.emptySlots.free(coord)
-        return
-    end
-    local name = data.name
-    local nbt = data.nbt or Item.NO_NBT
-    local itemCoord = coordLib.ItemCoordinate(name, nbt)
-    self.inventoryLUT[coord] = itemCoord
-    local ritem = self.items[itemCoord] or {}
-    local ditem = detailedDataCache[itemCoord]
-    if not ditem then
-        local periph, slot = coordLib.splitInventoryCoordinate(coord)
-        ditem = peripheral.call(periph, "getItemDetail", slot)
-        detailedDataCache[itemCoord] = ditem
-    end
-    self:_initReservedItem(ritem, ditem, data.count)
-    ritem.slotCounts[coord] = data.count
-    if data.count == ditem.maxCount then
-        ritem.fullSlots[#ritem.fullSlots + 1] = coord
-    else
-        ritem.partSlots[#ritem.partSlots + 1] = coord
-    end
-    self.items[itemCoord] = ritem
-    if ritem.total == 0 then
-        self.items[itemCoord] = nil
-    end
-end
-
----Get a list of functions to call in parallel to scan this Reserve
----@return fun()[]
-function Reserve__index:getScanFuncs()
-    local f = {}
-    ---@type table<string,boolean>
-    local inventories = {}
-    ---@type table<string,number[]>
-    local slotsPerInventory = {}
-    for coord in pairs(self.allSlots) do
-        local inv, slot = coordLib.splitInventoryCoordinate(coord)
-        inventories[inv] = true
-        slotsPerInventory[inv] = slotsPerInventory[inv] or {}
-        slotsPerInventory[inv][#slotsPerInventory[inv] + 1] = slot
-    end
-    for inv in pairs(inventories) do
-        f[#f + 1] = function()
-            local list = peripheral.call(inv, "list")
-            for _, i in ipairs(slotsPerInventory[inv]) do
-                local coord = coordLib.InventoryCoordinate(inv, i)
-                self:_setSlot(coord, list[i])
-            end
-        end
-    end
-    return f
-end
-
----Defrag a given item
----@param ritem ReserveItem
-function Reserve__index:_defragItem(ritem)
-    local itemCoord = coordLib.ItemCoordinate(ritem.info.name, ritem.info.nbt)
-    if self.defragLocks[itemCoord] then return end
-    self.defragLocks[itemCoord] = true
-    while #ritem.partSlots > 1 do
-        local from = ritem.partSlots[1]
-        local fromCount = ritem.slotCounts[from]
-        local to = ritem.partSlots[2]
-        local toCount = ritem.slotCounts[to]
-        local fperiph, fslot = coordLib.splitInventoryCoordinate(from)
-        local tperiph, tslot = coordLib.splitInventoryCoordinate(to)
-        local maxCount = ritem.info.maxCount
-        local predMove = math.min(fromCount, maxCount - toCount)
-        local fid = self:_startTransaction(from, itemCoord, -predMove)
-        local tid = self:_startTransaction(to, itemCoord, predMove)
-        local moved = peripheral.call(fperiph, "pushItems", tperiph, fslot, nil, tslot)
-        self:_endTransaction(fid, -moved)
-        self:_endTransaction(tid, moved)
-    end
-    self.defragLocks[itemCoord] = nil
-end
-
----Get a list of functions to execute in parallel to defrag the slots this Reserve contains
----@return fun()[]
-function Reserve__index:getDefragFuncs()
-    local f = {}
-    for coord, v in pairs(self.items) do
-        f[#f + 1] = function()
-            self:_defragItem(v)
-        end
-    end
-    return f
-end
-
----Clear all slots from this Reserve
-function Reserve__index:clear()
-    self.allSlots = {}
-    self.items = {}
-    self.inventoryLUT = {}
-    self.defragLocks = {}
 end
 
 ---Merge contents of from into to to, without duplicates
@@ -210,284 +61,18 @@ local function mergeIntoTable(from, to)
     end
 end
 
-
----Absorb the contents of another Reserve (emptying it)
----@param r Reserve
-function Reserve__index:absorb(r)
-    for coord in pairs(r.allSlots) do
-        r:_transferSlot(coord, self)
-    end
-    r:clear()
-end
-
 ---Search an array for items which match the given ItemDescriptor
 ---@param item ItemDescriptor
----@param tab table<ItemCoordinate,ReserveItem>
+---@param tab table<ItemCoordinate,VirtualItem>
 ---@return ItemCoordinate[]
 local function searchForItems(item, tab)
     local t = {}
     for k, v in pairs(tab) do
-        if item:match(v.info) then
+        if item:match(v) then
             t[#t + 1] = k
         end
     end
     return t
-end
-
----Yield for a free slot to be available
----@return InventoryCoordinate
-function Reserve__index:_allocateSlot()
-    return self.emptySlots.allocate()
-end
-
----Remove a set of values from an array
----@param t any[]
----@param vs any[]
-local function removeValuesFromArray(t, vs)
-    for _, v in ipairs(vs) do
-        removeValueFromArray(t, v)
-    end
-end
-
----Hand over a slot under this Reserve's control to another Reserve
----@param slot InventoryCoordinate
----@param to Reserve
-function Reserve__index:_transferSlot(slot, to)
-    local itemcoord = assert(self.inventoryLUT[slot], ("Cannot transfer slot %s not in this Reserve!"):format(slot))
-    local ritem = self.items[itemcoord]
-    local info = ritem.info
-    local count = ritem.slotCounts[slot]
-    self:_removeSlot(slot)
-    info.count = count
-    to:_setSlot(slot, info)
-end
-
----@param to Reserve
----@param icoord InventoryCoordinate
----@param limit integer
----@return integer
-function Reserve__index:_doOneTransferIter(to, icoord, limit)
-    local ritem = self.items[icoord]
-    if not ritem then return 0 end
-    if limit >= ritem.info.maxCount then
-        local fslot = ritem.fullSlots[1]
-        if fslot then
-            self:_transferSlot(fslot, to)
-            return ritem.info.maxCount
-        end
-        local pslot = ritem.partSlots[1]
-        local slotCount = ritem.slotCounts[pslot]
-        self:_transferSlot(pslot, to)
-        return slotCount
-    end
-    local invCoord = ritem.fullSlots[1] or ritem.partSlots[1]
-    local inv, slot = coordLib.splitInventoryCoordinate(invCoord)
-    local slotCount = ritem.slotCounts[invCoord]
-    local predMove = math.min(slotCount, limit)
-    local toCoord = to:_allocateSlot()
-    local tinv, tslot = coordLib.splitInventoryCoordinate(toCoord)
-    local sid = self:_startTransaction(invCoord, icoord, -predMove)
-    local tid = to:_startTransaction(toCoord, icoord, predMove)
-    local moved = peripheral.call(inv, "pushItems", tinv, slot, limit, tslot)
-    self:_endTransaction(sid, -moved)
-    to:_endTransaction(tid, moved)
-    return moved
-end
-
----Transfer a set amount of items from this reserve to the Reserve to
----@param to Reserve
----@param desc ItemDescriptor
----@param limit integer
----@return integer moved
-function Reserve__index:transfer(to, desc, limit)
-    local matches = searchForItems(desc, self.items)
-    local moved = 0
-    for _, match in ipairs(matches) do
-        repeat
-            local imoved = self:_doOneTransferIter(to, match, limit - moved)
-            moved = moved + imoved
-        until imoved == 0 or moved == limit
-        if moved == limit then break end
-    end
-    return moved
-end
-
----Create a new reserve with a set amount of items from this one
---- Returns nil if it is unable to reserve the amount of items requested
----@param desc ItemDescriptor
----@param count integer
----@return Reserve?
-function Reserve__index:split(desc, count)
-    local r = Reserve.empty(self.emptySlots)
-    local moved = self:transfer(r, desc, count)
-    if moved ~= count then
-        self:absorb(r)
-        return
-    end
-    return r
-end
-
----Return control of this Reserve's slots back to its parent (from :split())
-function Reserve__index:free()
-
-end
-
----Find a slot in this reserve that is full of matching items
----@param itemList ItemCoordinate[]
----@return ItemCoordinate? itemCoord
----@return InventoryCoordinate? invCoord
-function Reserve__index:_findFullSlot(itemList)
-    for _, itemCoord in ipairs(itemList) do
-        local ritem = self.items[itemCoord]
-        local _, fullCoord = next(ritem.fullSlots)
-        if fullCoord then
-            return itemCoord, fullCoord
-        end
-    end
-end
-
----Find a slot in this reserve that has at least count of matching items
----@param itemList ItemCoordinate[]
----@param count integer
----@return ItemCoordinate itemCoord
----@return InventoryCoordinate invCoord
----@return integer count
-function Reserve__index:_findSlotWithClosestCount(itemList, count)
-    local maxFound
-    local maxItem
-    local maxCount = 0
-    for _, itemCoord in ipairs(itemList) do
-        local ritem = self.items[itemCoord]
-        for _, partCoord in ipairs(ritem.partSlots) do
-            local icount = ritem.slotCounts[partCoord]
-            if icount >= count then
-                return itemCoord, partCoord, count
-            elseif icount > maxCount then
-                maxFound = partCoord
-                maxCount = icount
-                maxItem = itemCoord
-            end
-        end
-    end
-    return maxItem, maxFound, maxCount
-end
-
---- TODO follow these rules when modifying the contents of the Reserve
---- - If a slot is *losing* items, predict the loss and update the total
---- - If a slot is *gaining* items, make no changes until after the transaction
---- - If a slot is going to be empty, do not add it to the empty cache until afterwards
-
-local lastTransactionID = 0
----Start a loss transaction over a slot
----@param invCoord InventoryCoordinate
----@param itemCoord ItemCoordinate
----@param predMove integer
----@return integer tid
-function Reserve__index:_startTransaction(invCoord, itemCoord, predMove)
-    local ritem = self.items[itemCoord]
-    lastTransactionID = lastTransactionID + 1
-    local tid = lastTransactionID
-    local transaction = {
-        predMove = 0,
-        invCoord = invCoord,
-        itemCoord = itemCoord
-    }
-    self._transactions[tid] = transaction
-    local slotCount = 0
-    if ritem then
-        slotCount = ritem.slotCounts[invCoord] or 0
-    end
-    if predMove > 0 then
-        -- gain transaction, only update afterwards
-        return tid
-    end
-    transaction.predMove = predMove
-    -- loss transaction, guess the loss
-    local predTotal = slotCount + predMove
-    if predTotal == 0 then
-        self:_removeSlot(invCoord)
-    else
-        detailedDataCache[itemCoord].count = predTotal
-        self:_setSlot(invCoord, detailedDataCache[itemCoord])
-    end
-    return tid
-end
-
----End a loss transaction over a slot
----@param tid integer
----@param realMove integer
-function Reserve__index:_endTransaction(tid, realMove)
-    local transaction = self._transactions[tid]
-    if not transaction then
-        error(("Invalid transaction ID %s"):format(tid), 1)
-    end
-    local itemCoord, invCoord = transaction.itemCoord, transaction.invCoord
-    self._transactions[tid] = nil
-    local predMove = transaction.predMove
-    local oldCount = 0
-    local ritem = self.items[itemCoord]
-    if ritem then
-        oldCount = ritem.slotCounts[invCoord] or oldCount
-    end
-    local realCount = oldCount - predMove + realMove
-    if realCount == 0 then
-        -- make sure the empty slot is now part of the emptySlot list
-        self:_setSlot(invCoord, nil)
-    else
-        local info = detailedDataCache[itemCoord]
-        info.count = realCount
-        self:_setSlot(invCoord, info)
-    end
-end
-
----Push items from this Reserve into some inventory
---- * Behaves like Inventory.pushItems
---- * Moves up to a stack of items at once
----@param to string
----@param item ItemDescriptor
----@param limit integer?
----@param toSlot integer?
----@return integer
-function Reserve__index:pushItems(to, item, limit, toSlot)
-    local matches = searchForItems(item, self.items)
-    if #matches == 0 then
-        return 0
-    end
-    -- check for a full slot to push from
-    local itemCoord, fullCoord = self:_findFullSlot(matches)
-    local inv, slot, slotCount
-    if fullCoord then
-        inv, slot = coordLib.splitInventoryCoordinate(fullCoord)
-        slotCount = self.items[itemCoord].info.maxCount
-    else
-        itemCoord, fullCoord, slotCount = self:_findSlotWithClosestCount(matches, limit or 64)
-        inv, slot = coordLib.splitInventoryCoordinate(fullCoord)
-    end
-    local ritem = self.items[itemCoord]
-    local predictedMove = math.min(limit, slotCount)
-    local tid = self:_startTransaction(fullCoord, itemCoord, -predictedMove)
-    local moved = peripheral.call(inv, "pushItems", to, slot, limit, toSlot)
-    self:_endTransaction(tid, -moved)
-    self:_defragItem(ritem)
-    return moved
-end
-
----Pull Items from an inventory into this reserve
---- * Same behavior as Inventory.pullItems
---- * As long as an empty slot is available
----   a whole stack (or limit) will be pulled.
----@param from string
----@param slot integer
----@param limit integer?
----@return integer
-function Reserve__index:pullItems(from, slot, limit)
-    local emptySlot = self:_allocateSlot()
-    local inv, tSlot = coordLib.splitInventoryCoordinate(emptySlot)
-    local moved = peripheral.call(inv, "pullItems", from, slot, limit, tSlot)
-    local info = peripheral.call(inv, "getItemDetail", tSlot)
-    self:_setSlot(emptySlot, info)
-    self:_defragItem(self.items[coordLib.ItemCoordinate(info.name, info.nbt)])
-    return moved
 end
 
 ---Execute a table of functions in batches
@@ -506,68 +91,745 @@ local function batchExecute(func, skipPartial, limit)
     return table.pack(table.unpack(func, 1 + limit * batches))
 end
 
----Defrag this Reserve
-function Reserve__index:defrag()
-    local f = self:getDefragFuncs()
-    batchExecute(f, false, 128)
+---@alias InventoryCompatible string
+
+---@param inv InventoryCompatible
+---@param fun string
+---@param ... any
+local function invCall(inv, fun, ...)
+    return peripheral.call(inv, fun, ...)
 end
 
----Scan all slots this Reserve covers
---- Populates the freeSlots and items contents
-function Reserve__index:scan()
-    local f = self:getScanFuncs()
-    batchExecute(f, false, 128)
+---Get the length of a given table
+---@param t table
+---@return integer
+local function getLength(t)
+    local c = 0
+    for _ in pairs(t) do c = c + 1 end
+    return c
 end
 
----Add inventories to this Reserve, without scanning the contents of the slots
---- The slots will not be usable until they are scanned!
----@param invs any
-function Reserve__index:addInventories(invs)
-    for _, inv in ipairs(invs) do
-        for i = 1, peripheral.call(inv, "size") do
-            self.allSlots[coordLib.InventoryCoordinate(inv, i)] = true
+---Clone a table
+---@generic T
+---@param t T
+---@return T
+local function clone(t)
+    if type(t) == "table" then
+        local nt = {}
+        for k, v in pairs(t) do
+            nt[k] = clone(v)
+        end
+        return nt
+    end
+    return t
+end
+
+---Get the getItemDetail info of an item, checking the cache first
+---@param itemCoord ItemCoordinate
+---@param invCoord InventoryCoordinate?
+local function getItemDetailed(itemCoord, invCoord)
+    shrexpect({ "string", "string?" }, { itemCoord, invCoord })
+    if detailedDataCache[itemCoord] then
+        return clone(detailedDataCache[itemCoord])
+    end
+    if detailedCacheLock[itemCoord] then
+        while detailedCacheLock[itemCoord] do
+            os.pullEvent(cacheFinishEvent)
+        end
+        return clone(detailedDataCache[itemCoord])
+    end
+    if invCoord then
+        detailedCacheLock[itemCoord] = true
+        local inv, slot = coordLib.splitInventoryCoordinate(invCoord)
+        local info = invCall(inv, "getItemDetail", slot)
+        detailedDataCache[itemCoord] = info
+        detailedCacheLock[itemCoord] = nil
+        os.queueEvent(cacheFinishEvent)
+        return clone(info)
+    end
+    error(("getItemDetail, no invCoord, but itemCoord (%s) not in cache!"):format(itemCoord), 2)
+end
+
+
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---@class RealItem : CCItemInfo
+---@field fullSlots table<InventoryCoordinate,integer>
+---@field partSlots table<InventoryCoordinate,integer>
+---@field virtSlots table<InventoryCoordinate,integer>
+
+---@class VirtualItem : CCItemInfo
+---@field slot InventoryCoordinate
+
+---@class Reserve
+---@field items table<ItemCoordinate,VirtualItem>
+---@field parent VirtualInv
+local Reserve__index = {}
+Reserve__index.__type = "Reserve"
+local Reserve = { __index = Reserve__index }
+
+---Absorb the contents of another Reserve (emptying it)
+---@param r Reserve
+function Reserve__index:absorb(r)
+    shrexpect({ "Reserve" }, { r })
+    self.parent:_absorb(self, r)
+end
+
+---Transfer a set amount of items from this reserve to the Reserve to
+---@param to Reserve
+---@param desc ItemDescriptor
+---@param limit integer
+---@return integer moved
+function Reserve__index:transfer(to, desc, limit)
+    shrexpect({ "Reserve", "string", "number" }, { to, desc, limit })
+    return self.parent:_transfer(self, to, desc, limit)
+end
+
+---Create a new reserve with a set amount of items from this one
+--- Returns nil if it is unable to reserve the amount of items requested
+---@param desc ItemDescriptor
+---@param count integer
+---@return Reserve?
+function Reserve__index:split(desc, count)
+    shrexpect({ "ItemDescriptor", "number" }, { desc, count })
+    local new = Reserve.empty(self.parent)
+    local moved = self.parent:_transfer(self, new, desc, count)
+    if moved < count then
+        self:absorb(new)
+        return
+    end
+    return new
+end
+
+---Return control of this Reserve's slots back to its parent (from :split())
+function Reserve__index:free()
+    self.parent:absorb(self)
+end
+
+---Push items from this Reserve into some inventory
+--- * Behaves like Inventory.pushItems
+--- * Moves up to a stack of items at once
+---@param to string
+---@param item ItemDescriptor
+---@param limit integer?
+---@param toSlot integer?
+---@return integer
+function Reserve__index:pushItems(to, item, limit, toSlot)
+    shrexpect({ "string", "ItemDescriptor", "number?", "number?" }, { to, item, limit, toSlot })
+    local matches = searchForItems(item, self.items)
+    local moved = 0
+    for _, virtSlot in ipairs(matches) do
+        moved = moved + self.parent:_pushItems(self, to, virtSlot, limit, toSlot)
+        if moved == limit then
+            break
+        end
+    end
+    return moved
+end
+
+---Pull Items from an inventory into this reserve
+--- * Same behavior as Inventory.pullItems
+--- * As long as an empty slot is available
+---   a whole stack (or limit) will be pulled.
+---@param from string
+---@param slot integer
+---@param limit integer?
+---@return integer
+function Reserve__index:pullItems(from, slot, limit)
+    shrexpect({ "string", "number", "number?" }, { from, slot, limit })
+    return self.parent:_pullItems(self, from, slot, limit)
+end
+
+---Get a printable representation of this Reserve
+---@return string
+function Reserve__index:toString()
+    local s = textutils.serialise(self.items)
+    return s
+end
+
+---Dump the Reserve to a file
+---@param fn string
+function Reserve__index:dump(fn)
+    local f = assert(fs.open(fn, "w"))
+    f.write(self:toString())
+    f.close()
+end
+
+---Create an empty Reserve
+---@param parent VirtualInv
+---@return Reserve
+function Reserve.empty(parent)
+    local res = setmetatable({}, Reserve)
+    res.items = {}
+    res.parent = parent
+    return res
+end
+
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--- TODO follow these rules when modifying the contents of the VirtualInv
+--- - If a slot is *losing* items, predict the loss and update the total
+--- - If a slot is *gaining* items, make no changes until after the transaction
+--- - If a slot is going to be empty, do not add it to the empty cache until afterwards
+
+---@class VirtualInv : Reserve
+---@field virtSlots table<InventoryCoordinate,VirtualItem>
+---@field realItems table<ItemCoordinate,RealItem>
+---@field realSlotList InventoryCoordinate[]
+---@field realItemLUT table<InventoryCoordinate,ItemCoordinate>
+---@field itemLocks table<ItemCoordinate,boolean>
+---@field scanLocks table<InventoryCompatible,boolean>
+---@field rootVirtSlotLUT table<ItemCoordinate,InventoryCoordinate>
+local VirtualInv__index = setmetatable({}, Reserve)
+VirtualInv__index.__type = "VirtualInv"
+local VirtualInv = { __index = VirtualInv__index }
+
+---Transfer a set amount of items between Reserves
+---@param from Reserve
+---@param to Reserve
+---@param desc ItemDescriptor
+---@param limit integer
+---@return integer moved
+function VirtualInv__index:_transfer(from, to, desc, limit)
+    shrexpect({ "Reserve|VirtualInv", "Reserve|VirtualInv", "ItemDescriptor", "number" }, { from, to, desc, limit })
+    local matches = searchForItems(desc, from.items)
+    local moved = 0
+    for i, itemCoord in ipairs(matches) do
+        local fromItem = from.items[itemCoord]
+        local toItem = to.items[itemCoord]
+        local fromVirt = fromItem.slot
+        local toVirt
+        local canMove = math.min(fromItem.count, limit - moved)
+        if canMove == fromItem.count then
+            -- Move the slot directly over
+            toItem = fromItem
+            toVirt = fromVirt
+            from.items[itemCoord] = nil
+            to.items[itemCoord] = fromItem
+        else
+            if not toItem then
+                toVirt = self:_newVirtSlot()
+                toItem = getItemDetailed(itemCoord) --[[@as VirtualItem]]
+                toItem.slot = toVirt
+                self.virtSlots[toVirt] = toItem
+                to.items[itemCoord] = toItem
+            else
+                toVirt = toItem.slot
+            end
+            toItem.count = canMove
+            self.realItems[itemCoord].virtSlots[toVirt] = canMove
+            fromItem.count = fromItem.count - canMove
+            self.realItems[itemCoord].virtSlots[fromVirt] = fromItem.count
+            if fromItem.count == 0 then
+                from.items[itemCoord] = nil
+                self.realItems[itemCoord].virtSlots[fromVirt] = nil
+                self.virtSlots[fromVirt] = nil
+            end
+        end
+
+        moved = moved + canMove
+        if moved == limit then break end
+    end
+    return moved
+end
+
+---Absorb from into the Reserve to
+---@param to Reserve
+---@param from Reserve
+function VirtualInv__index:_absorb(to, from)
+    shrexpect({ "Reserve|VirtualInv", "Reserve" }, { to, from })
+    for itemCoord, virtItem in pairs(from.items) do
+        local toVirtItem = to.items[itemCoord]
+        if not toVirtItem then
+            -- directly transfer the virtual item's ownership
+            to.items[itemCoord] = virtItem
+            from.items[itemCoord] = nil
+        else
+            toVirtItem.count = toVirtItem.count + virtItem.count
+            local toSlot = toVirtItem.slot
+            local fromSlot = virtItem.slot
+            local realItem = self.realItems[itemCoord]
+            realItem.virtSlots[toSlot] = realItem.virtSlots[toSlot] + virtItem.count
+            realItem.virtSlots[fromSlot] = nil
+            self.virtSlots[fromSlot] = nil
+            from.items[itemCoord] = nil
         end
     end
 end
 
----Create a reserve from a list of inventories (freshly scanning its contents)
----@param invs InventoryCompatible[]
----@return Reserve
-function Reserve.fromInventories(invs)
-    local res = Reserve.empty()
-    res:addInventories(invs)
-    res:scan()
-    return res
+---Push items from a reserve
+--- * Behaves like Inventory.pushItems
+--- * Moves up to a stack of items at once
+---@param r Reserve
+---@param toInv InventoryCompatible
+---@param virtSlot InventoryCoordinate
+---@param limit integer?
+---@param toSlot integer?
+---@return integer moved
+function VirtualInv__index:_pushItems(r, toInv, virtSlot, limit, toSlot)
+    shrexpect({ "Reserve", "string", "string", "number?", "number?" }, { r, toInv, virtSlot, limit, toSlot })
+    local virtItem = r.items[virtSlot]
+    local itemCoord = coordLib.ItemCoordinate(virtItem.name, virtItem.nbt)
+    local realItem = self.realItems[itemCoord]
+    limit = math.min(limit or realItem.maxCount, virtItem.count)
+    local virtCount = virtItem.count
+    local moved = 0
+    while true do
+        -- make sure this item isn't being defragged at the moment
+        self:_checkItemLock(itemCoord)
+        -- make sure the inventory is in a stable state
+        self:_checkScanLock()
+        local invCoord, slotCount = next(realItem.partSlots)
+        if not invCoord then
+            invCoord, slotCount = next(realItem.fullSlots)
+            if not invCoord then
+                self:_checkEmpty(itemCoord)
+                break
+            end
+        end
+        local expectedToMove = math.min(slotCount, limit - moved)
+        self:_setSlot(invCoord, itemCoord, slotCount - expectedToMove)
+        self:_setVirtSlot(r, virtItem.slot, itemCoord, virtCount - expectedToMove)
+        local fromInv, fromSlot = coordLib.splitInventoryCoordinate(invCoord)
+        local actuallyMoved = invCall(fromInv, "pushItems", toInv, fromSlot, expectedToMove, toSlot)
+        moved = moved + actuallyMoved
+        self:_setSlot(invCoord, itemCoord, slotCount - actuallyMoved)
+        self:_setVirtSlot(r, virtItem.slot, itemCoord, virtCount - actuallyMoved)
+        if actuallyMoved == 0 then
+            break
+        elseif moved == limit then
+            break
+        end
+    end
+    return moved
 end
 
----Create an empty Reserve
----@param ess EmptySlotStorage?
----@return Reserve
-function Reserve.empty(ess)
-    local res = setmetatable({}, Reserve)
-    res.allSlots = {}
-    res.emptySlots = ess or Reserve.emptySlotStorage()
-    res.items = {}
-    res.defragLocks = {}
-    res.inventoryLUT = {}
-    res._transactions = {}
-    return res
+---PUll items into a Reserve
+--- * Behaves like Inventory.pullItems
+--- * Moves up to a stack of items at once
+---@param r Reserve
+---@param fromInv InventoryCompatible
+---@param fromSlot integer
+---@param limit integer?
+---@return integer moved
+function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
+    local emptyCoord = self.ess.allocate()
+    local emptyInv, emptySlot = coordLib.splitInventoryCoordinate(emptyCoord)
+    local moved = invCall(emptyInv, "pullItems", fromInv, fromSlot, limit, emptySlot)
+    if moved == 0 then
+        self.ess.free(emptyCoord)
+        return 0
+    end
+    local info = invCall(emptyInv, "getItemDetail", emptySlot)
+    local itemCoord = coordLib.ItemCoordinate(info.name, info.nbt)
+    detailedDataCache[itemCoord] = detailedDataCache[itemCoord] or info
+    local vitem = r.items[itemCoord]
+    if vitem then
+        self:_setVirtSlot(r, vitem.slot, itemCoord, vitem.count + moved)
+    else
+        local vcoord = self:_newVirtSlot()
+        self:_setVirtSlot(r, vcoord, itemCoord, moved)
+    end
+    if moved == info.maxCount then
+        self:_setSlot(emptyCoord, itemCoord, moved)
+    else
+        -- merge with partSlot
+        local ritem = self.realItems[itemCoord]
+        local toCoord, toCount = next(ritem.partSlots)
+        if not toCoord then
+            -- No partSlot exists, just leave this in place
+            self:_setSlot(emptyCoord, itemCoord, moved)
+        else
+            local toInv, toSlot = coordLib.splitInventoryCoordinate(toCoord)
+            local mergeMoved = invCall(emptyInv, "pushItems", toInv, emptySlot, moved, toSlot)
+            self:_setSlot(emptyCoord, itemCoord, moved - mergeMoved)
+            self:_setSlot(toCoord, itemCoord, toCount + mergeMoved)
+        end
+    end
+    return moved
 end
+
+---Create a new virtual slot
+--- Each virtual slot will contain ONE type of item
+--- Multiple virtual slots may contain the same type of item
+---@return InventoryCoordinate
+function VirtualInv__index:_newVirtSlot()
+    self.lastVirtSlot = self.lastVirtSlot + 1
+    local newCoord = coordLib.InventoryCoordinate(self.virtName, self.lastVirtSlot)
+    return newCoord
+end
+
+---Yield if a slot is defrag locked
+---@param itemCoord ItemCoordinate
+function VirtualInv__index:_checkItemLock(itemCoord)
+    while self.itemLocks[itemCoord] do
+        os.pullEvent(itemLockFreeEvent)
+    end
+end
+
+---Check if a slot is currently defrag locked, and yield for it to no longer be
+---@param itemCoord ItemCoordinate
+function VirtualInv__index:_setItemLock(itemCoord)
+    self:_checkItemLock(itemCoord)
+    self.itemLocks[itemCoord] = true
+end
+
+function VirtualInv__index:_freeItemLock(itemCoord)
+    self.itemLocks[itemCoord] = nil
+    os.queueEvent(itemLockFreeEvent)
+end
+
+---Defrag a given item
+---@param itemCoord ItemCoordinate
+function VirtualInv__index:_defragItem(itemCoord)
+    self:_setItemLock(itemCoord)
+    local ritem = self.realItems[itemCoord]
+    while getLength(ritem.partSlots) > 1 do
+        local fromInvCoord, fromCount = next(ritem.partSlots)
+        local toInvCoord, toCount = next(ritem.partSlots, fromInvCoord)
+        local fromInv, fromSlot = coordLib.splitInventoryCoordinate(fromInvCoord)
+        local toInv, toSlot = coordLib.splitInventoryCoordinate(toInvCoord)
+        local moved = invCall(fromInv, "pushItems", toInv, fromSlot, nil, toSlot)
+        self:_setSlot(fromInvCoord, itemCoord, fromCount - moved)
+        self:_setSlot(toInvCoord, itemCoord, toCount + moved)
+    end
+    self:_freeItemLock(itemCoord)
+end
+
+function VirtualInv__index:getDefragFuncs()
+    local f = {}
+    for i, v in pairs(self.realItems) do
+        f[#f + 1] = function()
+            self:_defragItem(i)
+        end
+    end
+    return f
+end
+
+---Defrag this VirtualInv
+function VirtualInv__index:defrag()
+    local f = self:getDefragFuncs()
+    batchExecute(f, false, 128)
+end
+
+---Check if there are 0 of an item, and delete it if there is
+---@param itemCoord ItemCoordinate
+function VirtualInv__index:_checkEmpty(itemCoord)
+    local ritem = self.realItems[itemCoord]
+    if not ritem then return end
+    if ritem.count == 0 then
+        self.realItems[itemCoord] = nil
+    end
+end
+
+---@param virtInv VirtualInv
+---@param vcoord InventoryCoordinate
+local function isInRootReserve(virtInv, vcoord)
+    local vitem = virtInv.virtSlots[vcoord]
+    local itemCoord = coordLib.ItemCoordinate(vitem.name, vitem.nbt)
+    local ritem = virtInv.items[itemCoord]
+    if not ritem then return false end
+    return ritem.slot == vcoord
+end
+
+---Get the total amount reserved of a given item, not including the root unreserved items
+---@param itemCoord ItemCoordinate
+---@return integer
+function VirtualInv__index:_getReservedCount(itemCoord)
+    local ritem = self.realItems[itemCoord]
+    if not ritem then return 0 end
+    local count = 0
+    for vcoord, vcount in pairs(ritem.virtSlots) do
+        if not isInRootReserve(self, vcoord) then
+            count = count + vcount
+        end
+    end
+    return count
+end
+
+---Get the root VirtualInv virtual slot for an item
+---@param itemCoord ItemCoordinate
+---@return InventoryCoordinate
+function VirtualInv__index:_getRootVirtSlot(itemCoord)
+    if self.rootVirtSlotLUT[itemCoord] then
+        return self.rootVirtSlotLUT[itemCoord]
+    end
+    local virtCoord = self:_newVirtSlot()
+    self.rootVirtSlotLUT[itemCoord] = virtCoord
+    return virtCoord
+end
+
+local tmp = 0
+---Set the contents of a virtual slot directly
+---@param reserve Reserve
+---@param virtCoord InventoryCoordinate
+---@param itemCoord ItemCoordinate?
+---@param count integer
+function VirtualInv__index:_setVirtSlot(reserve, virtCoord, itemCoord, count)
+    shrexpect({ "Reserve|VirtualInv", "string", "string?", "number" }, { reserve, virtCoord, itemCoord, count })
+    local vitem = self.virtSlots[itemCoord]
+    if not vitem then
+        vitem = getItemDetailed(itemCoord, nil) --[[@as VirtualItem]]
+        vitem.count = 0
+        vitem.slot = virtCoord
+    end
+    vitem.count = count
+    self.virtSlots[virtCoord] = vitem
+    self.realItems[itemCoord].virtSlots[virtCoord] = vitem.count
+    if count == 0 or not itemCoord then
+        if itemCoord then
+            reserve.items[itemCoord] = nil
+        end
+        self.virtSlots[virtCoord] = nil
+        self.realItems[itemCoord].virtSlots[virtCoord] = nil
+        return
+    end
+    reserve.items[itemCoord] = vitem
+    tmp = tmp + 1
+end
+
+---Remove a slot (set its count to 0, remove from tables)
+---@param invCoord InventoryCoordinate
+function VirtualInv__index:_emptySlot(invCoord)
+    local itemCoord = self.realItemLUT[invCoord]
+    self.ess.free(invCoord)
+    if not itemCoord then return end
+    local ritem = self.realItems[itemCoord]
+    self.realItemLUT[invCoord] = nil
+    if not ritem then return end
+    local oldSlotCount = ritem.fullSlots[invCoord] or ritem.partSlots[invCoord] or 0
+    ritem.count = ritem.count - oldSlotCount
+    ritem.fullSlots[invCoord] = nil
+    ritem.partSlots[invCoord] = nil
+    self:_checkEmpty(itemCoord)
+end
+
+---Set the contents of a real slot directly
+---@param invCoord InventoryCoordinate
+---@param itemCoord ItemCoordinate?
+---@param count integer
+function VirtualInv__index:_setSlot(invCoord, itemCoord, count)
+    shrexpect({ "string", "string?", "number" }, { invCoord, itemCoord, count })
+    if count < 0 then
+        error(("_setSlot called with negative count (%d)!"):format(count), 2)
+    end
+    self:_emptySlot(invCoord)
+    if itemCoord == nil or count == 0 then
+        return
+    end
+    self.ess.clear(invCoord)
+    self.realItemLUT[invCoord] = itemCoord
+    local ritem = self.realItems[itemCoord]
+    if not ritem then
+        ritem = getItemDetailed(itemCoord, invCoord) --[[@as RealItem]]
+        ritem.count = 0
+        ritem.fullSlots = {}
+        ritem.partSlots = {}
+        ritem.virtSlots = {}
+    end
+    ritem.count = ritem.count + count
+    if count == ritem.maxCount then
+        ritem.fullSlots[invCoord] = count
+    else
+        ritem.partSlots[invCoord] = count
+    end
+
+    -- Go find all virtual slots with this item, and append them to this realItem
+    for virtCoord, vitem in pairs(self.virtSlots) do
+        local vitemCoord = coordLib.ItemCoordinate(vitem.name, vitem.nbt)
+        if vitemCoord == itemCoord then
+            ritem.virtSlots[virtCoord] = vitem.count
+        end
+    end
+
+    local vcoord = self:_getRootVirtSlot(itemCoord)
+    self.realItems[itemCoord] = ritem
+    self:_setVirtSlot(self, vcoord, itemCoord,
+        ritem.count - self:_getReservedCount(itemCoord))
+    self:_checkEmpty(itemCoord)
+end
+
+function VirtualInv__index:_initRootVirtSlots()
+    for itemCoord, ritem in pairs(self.realItems) do
+        local vcoord = self:_getRootVirtSlot(itemCoord)
+        self:_setVirtSlot(self, vcoord, itemCoord, ritem.count - self:_getReservedCount(itemCoord))
+    end
+end
+
+---Check if any inventories are being scanned (and if they are, wait until no are!)
+function VirtualInv__index:_checkScanLock()
+    while next(self.scanLocks) do
+        os.pullEvent(scanLockFreeEvent)
+    end
+end
+
+---Directly set the scan lock for an inventory
+---@param inv string
+function VirtualInv__index:_setScanLock(inv)
+    self.scanLocks[inv] = true
+end
+
+---Free a scan lock for an inventory
+---@param inv string
+function VirtualInv__index:_freeScanLock(inv)
+    self.scanLocks[inv] = nil
+    os.queueEvent(scanLockFreeEvent)
+end
+
+---Get a string representation of the status of this VirtualInventory
+---@return string
+function VirtualInv__index:toString()
+    local s = "realItems = " .. textutils.serialise(self.realItems)
+    s = s .. "\n\n\nvirtSlots = " .. textutils.serialise(self.virtSlots)
+    s = s .. "\n\n\nitems = " .. Reserve__index.toString(self)
+    return s
+end
+
+---Scan a given inventory
+---@param inv string
+---@param slots table<string,number[]>
+function VirtualInv__index:_scanInv(inv, slots)
+    self:_setScanLock(inv)
+    local list = peripheral.call(inv, "list")
+    for _, i in ipairs(slots[inv]) do
+        local coord = coordLib.InventoryCoordinate(inv, i)
+        if list[i] then
+            local itemCoord = coordLib.ItemCoordinate(list[i].name, list[i].nbt)
+            self:_setSlot(coord, itemCoord, list[i].count)
+        else
+            self:_setSlot(coord, nil, 0)
+        end
+    end
+    self:_freeScanLock(inv)
+end
+
+---Get a list of functions to call in parallel to scan this Reserve
+---@return fun()[]
+function VirtualInv__index:getScanFuncs()
+    local f = {}
+    ---@type table<string,boolean>
+    local inventories = {}
+    ---@type table<string,number[]>
+    local slotsPerInventory = {}
+    for _, coord in ipairs(self.realSlotList) do
+        local inv, slot = coordLib.splitInventoryCoordinate(coord)
+        inventories[inv] = true
+        slotsPerInventory[inv] = slotsPerInventory[inv] or {}
+        slotsPerInventory[inv][#slotsPerInventory[inv] + 1] = slot
+    end
+    for inv in pairs(inventories) do
+        f[#f + 1] = function()
+            self:_scanInv(inv, slotsPerInventory)
+        end
+    end
+    return f
+end
+
+---Scan all slots this VirtualInv covers
+function VirtualInv__index:scan()
+    local f = self:getScanFuncs()
+    batchExecute(f, false, 128)
+end
+
+---@param invs InventoryCompatible[]
+---@return VirtualInv
+function VirtualInv.new(invs)
+    local ess = Reserve.emptySlotStorage()
+    ---@diagnostic disable-next-line: missing-fields
+    ---@class VirtualInv : Reserve
+    local self = setmetatable(Reserve.empty({}), VirtualInv) --[[@as VirtualInv]]
+    self.parent = self
+    self.lastVirtSlot = 0
+    self.virtName = "VIRT"
+    self.itemLocks = {}
+    self.realSlotList = {}
+    for _, inv in ipairs(invs) do
+        for slot = 1, invCall(inv, "size") do
+            self.realSlotList[#self.realSlotList + 1] = coordLib.InventoryCoordinate(inv, slot)
+        end
+    end
+    self.virtSlots = {}
+    self.scanLocks = {}
+    self.realItemLUT = {}
+    self.ess = ess
+    self.rootVirtSlotLUT = {}
+    self.realItems = {}
+
+    self:scan()
+
+    return self
+end
+
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 local lastEssId = 0
 ---@return EmptySlotStorage
-function Reserve.emptySlotStorage()
+---@param slotlist InventoryCoordinate[]?
+function Reserve.emptySlotStorage(slotlist)
     lastEssId = lastEssId + 1
     ---@class EmptySlotStorage
     local ess = {
-        id = lastEssId
+        id = lastEssId,
+        __type = "EmptySlotStorage"
     }
     ---@class EmptySlotStorage
     local ess__index = {}
     ---@type table<InventoryCoordinate,boolean>
     local slots = {}
     ess.slots = slots
+    if slotlist then
+        for _, slot in ipairs(slotlist) do
+            slots[slot] = true
+        end
+    end
 
+    ---Mark a slot as being free
     ---@param s InventoryCoordinate
     function ess__index.free(s)
         slots[s] = true
@@ -590,6 +852,7 @@ function Reserve.emptySlotStorage()
         return ess.allocate()
     end
 
+    ---Mark a slot as NOT being free
     function ess__index.clear(s)
         slots[s] = nil
     end

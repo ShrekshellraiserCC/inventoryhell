@@ -8,7 +8,7 @@ local expect = require("cc.expect").expect
 function lib.InventoryCoordinate(periph, slot)
     expect(1, periph, "string")
     expect(2, slot, "number")
-    return periph .. "$" .. slot
+    return periph .. "@" .. slot
 end
 
 ---@param name string
@@ -20,19 +20,12 @@ function lib.ItemCoordinate(name, nbt)
     return name .. "$" .. (nbt or Item.NO_NBT)
 end
 
----@param coord InventoryCoordinate|ItemCoordinate
----@return string
----@return string
-local function splitCoordinate(coord)
-    expect(1, coord, "string")
-    return coord:match("^(.-)%$([%a%d]+)$")
-end
 ---@param coord InventoryCoordinate
 ---@return string
 ---@return integer
 function lib.splitInventoryCoordinate(coord)
     expect(1, coord, "string")
-    local inv, slot = splitCoordinate(coord)
+    local inv, slot = coord:match("^(.-)@([%a%d]+)$")
     assert(inv, ("Unable to get inventory from InventoryCoordinate: %s"):format(coord))
     assert(tonumber(slot), ("Invalid slot in InventoryCoordinate: %s"):format(coord))
     return inv, tonumber(slot)
@@ -43,7 +36,7 @@ end
 ---@return string
 function lib.splitItemCoordinate(coord)
     expect(1, coord, "string")
-    local name, nbt = splitCoordinate(coord)
+    local name, nbt = coord:match("^(.-)%$([%a%d]+)$")
     assert(name, ("Unable to get name from ItemCoordinate: %s"):format(coord))
     assert(nbt, ("Unable to get slot from ItemCoordinate: %s"):format(coord))
     return name, nbt

@@ -16,7 +16,7 @@ function lib.wrap(invList, resList, workList)
     local this = {}
     this.scheduler = TaskLib.Scheduler()
 
-    local invReserve = Reserve.fromInventories(invList, false)
+    local invReserve = Reserve.fromInventories(invList)
     invReserve:defrag()
 
     local turtlePort = 777

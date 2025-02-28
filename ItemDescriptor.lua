@@ -6,7 +6,7 @@ Item.NO_NBT = "NONE"
 
 ---@class ItemDescriptor
 ---@field type "FROM_NAME"
-local ItemDescriptor__index = {}
+local ItemDescriptor__index = { __type = "ItemDescriptor" }
 local ItemDescriptor = { __index = ItemDescriptor__index }
 
 ---Check if NBT matches item's NBT
