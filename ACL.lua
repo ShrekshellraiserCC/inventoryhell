@@ -11,7 +11,7 @@ lib.Item = require("ItemDescriptor")
 local VirtualInv = require("VirtualInv")
 lib.Reserve = VirtualInv
 
-function lib.wrap(invList, resList, workList)
+function lib.wrap(invList)
     -- Called 'this' to avoid scope conflictions with 'self'
     local this = {}
     this.scheduler = TaskLib.Scheduler()
@@ -23,17 +23,51 @@ function lib.wrap(invList, resList, workList)
     local turtlePort = 777
     local wmodem = peripheral.find("modem", function(name, wrapped)
         return not wrapped.isWireless()
-    end)
+    end) --[[@as Modem]]
     wmodem.open(turtlePort)
 
     ---@type table<string,boolean>
     local freeTurtles = {}
-    local periphs = peripheral.getNames()
-    for _, v in ipairs(periphs) do
-        if v:match("turtle_") then
-            freeTurtles[v] = true
+    ---@type table<string,boolean>
+    local allTurtles = {}
+    ---@type table<string,boolean>
+    local busyTurtles = {}
+    function this.searchForTurtles()
+        wmodem.transmit(turtlePort, turtlePort, { "GET_NAME" })
+        local tid = os.startTimer(0.2)
+        ---@type table<string,boolean>
+        local foundTurtles = {}
+        while true do
+            local e, side, channel, replyChannel, message = os.pullEvent()
+            if e == "modem_message" and type(message) == "table" and message[1] == "NAME" then
+                foundTurtles[message[2]] = true
+                os.cancelTimer(tid)
+                tid = os.startTimer(0.2)
+            elseif e == "timer" and side == tid then
+                break
+            end
+        end
+        local foundNew = false
+        for k in pairs(foundTurtles) do
+            if not allTurtles[k] then
+                allTurtles[k] = true
+                freeTurtles[k] = true
+                foundNew = true
+            end
+        end
+        for k in pairs(allTurtles) do
+            if not foundTurtles[k] then
+                assert(not busyTurtles[k], "A turtle in use has stopped responding!")
+                freeTurtles[k] = nil
+                allTurtles[k] = nil
+            end
+        end
+        if foundNew then
+            os.queueEvent("turtle_freed")
         end
     end
+
+    this.searchForTurtles()
 
     ---Reserve a turtle for use
     ---@return string
@@ -44,11 +78,13 @@ function lib.wrap(invList, resList, workList)
             return allocateTurtle()
         end
         freeTurtles[turt] = nil
+        busyTurtles[turt] = true
         return turt
     end
 
     local function freeTurtle(turt)
         freeTurtles[turt] = true
+        busyTurtles[turt] = nil
         os.queueEvent("turtle_freed")
     end
 
