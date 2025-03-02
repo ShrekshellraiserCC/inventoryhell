@@ -24,43 +24,6 @@ local cacheFinishEvent = "DETAILED_CACHE_FINISH"
 local itemLockFreeEvent = "ITEM_LOCK_FREE"
 local scanLockFreeEvent = "SCAN_LOCK_FREE"
 
----Remove a value from an array
----@generic T
----@param t T[]
----@param v T
-local function removeValueFromArray(t, v)
-    for i, v1 in ipairs(t) do
-        if v1 == v then
-            table.remove(t, i)
-            return
-        end
-    end
-end
-
----Merge contents of from into to to, without duplicates
----@generic T
----@param to T[]
----@param from T[]
-local function mergeIntoArray(from, to)
-    local n = #to
-    for i, v in pairs(from) do
-        removeValueFromArray(to, v) -- Horribly inefficient, TODO rethink this
-        to[n + 1] = v
-        n = n + 1
-    end
-end
-
----Merge contents of from into to to
----@generic K
----@generic V
----@param to table<K,V>
----@param from table<K,V>
-local function mergeIntoTable(from, to)
-    for k, v in pairs(from) do
-        to[k] = v
-    end
-end
-
 ---Search an array for items which match the given ItemDescriptor
 ---@param item ItemDescriptor
 ---@param tab table<ItemCoordinate,VirtualItem>
@@ -385,22 +348,69 @@ function VirtualInv__index:_absorb(to, from)
     end
 end
 
+---@alias TransactionInfo {invCoord:InventoryCoordinate,itemCoord:ItemCoordinate,expected:integer,virtCoord:InventoryCoordinate,r:Reserve}
+
+---Start a transaction using the following rules
+--- * If expected to lose items, update count immediately
+--- * If expected to gain items, don't touch count
+---@param realCoord InventoryCoordinate
+---@param itemCoord ItemCoordinate
+---@param r Reserve
+---@param expected integer
+---@return TransactionInfo
+function VirtualInv__index:_startTransaction(realCoord, itemCoord, r, expected)
+    local virtItem = r.items[itemCoord]
+    local virtCoord = virtItem.slot
+    local virtCount = virtItem.count
+    local realItem = self.realItems[itemCoord]
+    local slotCount = realItem.partSlots[realCoord] or realItem.fullSlots[realCoord]
+    if expected < 0 then
+        self:_setSlot(realCoord, itemCoord, slotCount + expected)
+        self:_setVirtSlot(r, virtCoord, itemCoord, virtCount + expected)
+    end
+    return {
+        invCoord = realCoord,
+        itemCoord = itemCoord,
+        expected = expected,
+        virtCoord = virtCoord,
+        r = r
+    }
+end
+
+---Complete a transaction
+---@param trans TransactionInfo
+---@param moved integer
+function VirtualInv__index:_endTransaction(trans, moved)
+    local r, realCoord, itemCoord, expected, virtCoord = trans.r,
+        trans.invCoord, trans.itemCoord, trans.expected, trans.virtCoord
+    local virtItem = r.items[itemCoord]
+    local virtCount = (virtItem and virtItem.count) or 0
+    local realItem = self.realItems[itemCoord]
+    local slotCount = realItem and (realItem.partSlots[realCoord] or realItem.fullSlots[realCoord]) or 0
+    if expected > 0 then
+        self:_setSlot(realCoord, itemCoord, slotCount + moved)
+        self:_setVirtSlot(r, virtCoord, itemCoord, virtCount + moved)
+    else
+        self:_setSlot(realCoord, itemCoord, slotCount - expected + moved)
+        self:_setVirtSlot(r, virtCoord, itemCoord, virtCount - expected + moved)
+    end
+end
+
 ---Push items from a reserve
 --- * Behaves like Inventory.pushItems
 --- * Moves up to a stack of items at once
 ---@param r Reserve
 ---@param toInv InventoryCompatible
----@param virtSlot InventoryCoordinate
+---@param itemCoord ItemCoordinate
 ---@param limit integer?
 ---@param toSlot integer?
 ---@return integer moved
-function VirtualInv__index:_pushItems(r, toInv, virtSlot, limit, toSlot)
-    shrexpect({ "Reserve", "string", "string", "number?", "number?" }, { r, toInv, virtSlot, limit, toSlot })
-    local virtItem = r.items[virtSlot]
-    local itemCoord = coordLib.ItemCoordinate(virtItem.name, virtItem.nbt)
+function VirtualInv__index:_pushItems(r, toInv, itemCoord, limit, toSlot)
+    shrexpect({ "Reserve|VirtualInv", "string", "string", "number?", "number?" }, { r, toInv, itemCoord, limit, toSlot })
+    local virtItem = r.items[itemCoord]
+    -- local itemCoord = coordLib.ItemCoordinate(virtItem.name, virtItem.nbt)
     local realItem = self.realItems[itemCoord]
     limit = math.min(limit or realItem.maxCount, virtItem.count)
-    local virtCount = virtItem.count
     local moved = 0
     while true do
         -- make sure this item isn't being defragged at the moment
@@ -416,13 +426,11 @@ function VirtualInv__index:_pushItems(r, toInv, virtSlot, limit, toSlot)
             end
         end
         local expectedToMove = math.min(slotCount, limit - moved)
-        self:_setSlot(invCoord, itemCoord, slotCount - expectedToMove)
-        self:_setVirtSlot(r, virtItem.slot, itemCoord, virtCount - expectedToMove)
         local fromInv, fromSlot = coordLib.splitInventoryCoordinate(invCoord)
+        local transaction = self:_startTransaction(invCoord, itemCoord, r, -expectedToMove)
         local actuallyMoved = invCall(fromInv, "pushItems", toInv, fromSlot, expectedToMove, toSlot)
         moved = moved + actuallyMoved
-        self:_setSlot(invCoord, itemCoord, slotCount - actuallyMoved)
-        self:_setVirtSlot(r, virtItem.slot, itemCoord, virtCount - actuallyMoved)
+        self:_endTransaction(transaction, -actuallyMoved)
         if actuallyMoved == 0 then
             break
         elseif moved == limit then
@@ -441,6 +449,8 @@ end
 ---@param limit integer?
 ---@return integer moved
 function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
+    -- make sure the inventory is in a stable state
+    self:_checkScanLock()
     local emptyCoord = self.ess.allocate()
     local emptyInv, emptySlot = coordLib.splitInventoryCoordinate(emptyCoord)
     local moved = invCall(emptyInv, "pullItems", fromInv, fromSlot, limit, emptySlot)
@@ -451,19 +461,12 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
     local info = invCall(emptyInv, "getItemDetail", emptySlot)
     local itemCoord = coordLib.ItemCoordinate(info.name, info.nbt)
     detailedDataCache[itemCoord] = detailedDataCache[itemCoord] or info
-    local vitem = r.items[itemCoord]
-    if vitem then
-        self:_setVirtSlot(r, vitem.slot, itemCoord, vitem.count + moved)
-    else
-        local vcoord = self:_newVirtSlot()
-        self:_setVirtSlot(r, vcoord, itemCoord, moved)
-    end
     if moved == info.maxCount then
         self:_setSlot(emptyCoord, itemCoord, moved)
     else
         -- merge with partSlot
         local ritem = self.realItems[itemCoord]
-        local toCoord, toCount = next(ritem.partSlots)
+        local toCoord = next(ritem.partSlots)
         if not toCoord then
             -- No partSlot exists, just leave this in place
             self:_setSlot(emptyCoord, itemCoord, moved)
@@ -471,8 +474,16 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
             local toInv, toSlot = coordLib.splitInventoryCoordinate(toCoord)
             local mergeMoved = invCall(emptyInv, "pushItems", toInv, emptySlot, moved, toSlot)
             self:_setSlot(emptyCoord, itemCoord, moved - mergeMoved)
+            local toCount = ritem.partSlots[toCoord]
             self:_setSlot(toCoord, itemCoord, toCount + mergeMoved)
         end
+    end
+    local vitem = r.items[itemCoord]
+    if vitem then
+        self:_setVirtSlot(r, vitem.slot, itemCoord, vitem.count + moved)
+    else
+        local vcoord = self:_newVirtSlot()
+        self:_setVirtSlot(r, vcoord, itemCoord, moved)
     end
     return moved
 end
@@ -587,7 +598,6 @@ function VirtualInv__index:_getRootVirtSlot(itemCoord)
     return virtCoord
 end
 
-local tmp = 0
 ---Set the contents of a virtual slot directly
 ---@param reserve Reserve
 ---@param virtCoord InventoryCoordinate
@@ -603,17 +613,19 @@ function VirtualInv__index:_setVirtSlot(reserve, virtCoord, itemCoord, count)
     end
     vitem.count = count
     self.virtSlots[virtCoord] = vitem
-    self.realItems[itemCoord].virtSlots[virtCoord] = vitem.count
     if count == 0 or not itemCoord then
         if itemCoord then
             reserve.items[itemCoord] = nil
         end
         self.virtSlots[virtCoord] = nil
-        self.realItems[itemCoord].virtSlots[virtCoord] = nil
+        if self.realItems[itemCoord] then
+            self.realItems[itemCoord].virtSlots[virtCoord] = nil
+        end
         return
     end
+    self.realItems[itemCoord].virtSlots[virtCoord] = vitem.count
     reserve.items[itemCoord] = vitem
-    tmp = tmp + 1
+    self:_calculateTotals(itemCoord)
 end
 
 ---Remove a slot (set its count to 0, remove from tables)
@@ -630,6 +642,18 @@ function VirtualInv__index:_emptySlot(invCoord)
     ritem.fullSlots[invCoord] = nil
     ritem.partSlots[invCoord] = nil
     self:_checkEmpty(itemCoord)
+end
+
+---Recompute the totals for a given item
+---@param itemCoord any
+function VirtualInv__index:_calculateTotals(itemCoord)
+    local totalVirtualCount = 0
+    local ritem = self.realItems[itemCoord]
+    if not ritem then return end
+    for _, v in pairs(ritem.virtSlots) do
+        totalVirtualCount = totalVirtualCount + v
+    end
+    ritem.count = totalVirtualCount
 end
 
 ---Set the contents of a real slot directly
@@ -675,6 +699,7 @@ function VirtualInv__index:_setSlot(invCoord, itemCoord, count)
     self:_setVirtSlot(self, vcoord, itemCoord,
         ritem.count - self:_getReservedCount(itemCoord))
     self:_checkEmpty(itemCoord)
+    self:_calculateTotals(itemCoord)
 end
 
 function VirtualInv__index:_initRootVirtSlots()
@@ -865,4 +890,4 @@ function Reserve.emptySlotStorage(slotlist)
     return setmetatable(ess, { __index = ess__index })
 end
 
-return Reserve
+return VirtualInv

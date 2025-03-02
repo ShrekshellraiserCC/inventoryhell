@@ -16,10 +16,20 @@ term.setCursorPos(1, 10)
 --     f.close()
 -- end }):addSubtask(TaskLib.Task.new(f))
 
+local cobble = ID.fromName("minecraft:cobblestone")
+local cobbleReserve = assert(inv.reserve:split(cobble, 64 * 8), "Not enough cobble!")
+
+cobbleReserve:dump("cobbleReserve.txt")
+
 local ctask = inv.TurtleCraftTask.craft(
-    { ID.fromName("minecraft:cobblestone") },
+    { cobble },
     { 1, 1, 1, 1, nil, 1, 1, 1, 1 },
-    64
+    64,
+    cobbleReserve,
+    function()
+        inv.reserve:dump("POSTCRAFT.txt")
+        cobbleReserve:free()
+    end
 )
 ctask:queue()
 

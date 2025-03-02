@@ -8,15 +8,16 @@ local TaskLib = require("STL")
 
 
 lib.Item = require("ItemDescriptor")
-local Reserve = require("Reserve")
-lib.Reserve = Reserve
+local VirtualInv = require("VirtualInv")
+lib.Reserve = VirtualInv
 
 function lib.wrap(invList, resList, workList)
     -- Called 'this' to avoid scope conflictions with 'self'
     local this = {}
     this.scheduler = TaskLib.Scheduler()
 
-    local invReserve = Reserve.fromInventories(invList)
+    local invReserve = VirtualInv.new(invList)
+    this.reserve = invReserve
     invReserve:defrag()
 
     local turtlePort = 777
@@ -77,12 +78,18 @@ function lib.wrap(invList, resList, workList)
     end
 
     ---@class PushTask : QueableTask
+    ---@field r Reserve?
     local PushTask__index = setmetatable({}, QueableTask)
     local PushTask = { __index = PushTask__index }
     this.PushTask = PushTask
 
-    function PushTask.new()
-        return setmetatable(TaskLib.Task.new({}), PushTask)
+    ---Create a new PushTask using an optional Reserve r
+    ---@param r Reserve?
+    ---@return PushTask|Task
+    function PushTask.new(r)
+        local self = setmetatable(TaskLib.Task.new({}), PushTask)
+        self.r = r or invReserve
+        return self
     end
 
     ---Distribue an item to a list of slots, with limit in each slot
@@ -97,7 +104,8 @@ function lib.wrap(invList, resList, workList)
     function PushTask__index:distributeToSlots(to, item, slots, limit)
         for i, slot in ipairs(slots) do
             self.funcs[#self.funcs + 1] = function()
-                return invReserve:pushItems(to, item, limit, slot)
+                local moved = self.r:pushItems(to, item, limit, slot)
+                return moved
             end
         end
         return self
@@ -125,13 +133,14 @@ function lib.wrap(invList, resList, workList)
     ---@return self
     function PushTask__index:dumbPush(to, item, limit)
         local f = function()
-            -- TODO change this out
-            return tempPushSource.pushItems(to, 1, limit)
+            return self.r:pushItems(to, item, limit)
         end
+        self.funcs[#self.funcs + 1] = f
         return self
     end
 
     ---@class PullTask : QueableTask
+    ---@field r Reserve?
     local PullTask__index = setmetatable({}, QueableTask)
     local PullTask = { __index = PullTask__index }
     this.PullTask = PullTask
@@ -140,10 +149,12 @@ function lib.wrap(invList, resList, workList)
     ---@param from InventoryCompatible
     ---@param slot integer
     ---@param limit integer?
-    ---@return PushTask
-    function PullTask.fromSlot(from, slot, limit)
+    ---@param r Reserve?
+    ---@return PushTask|Task
+    function PullTask.fromSlot(from, slot, limit, r)
         local f = function()
-            return invReserve:pullItems(from, slot, limit)
+            r = r or invReserve
+            return r:pullItems(from, slot, limit)
         end
         return setmetatable(TaskLib.Task.new({ f }), PullTask)
     end
@@ -158,14 +169,16 @@ function lib.wrap(invList, resList, workList)
     ---@param items ItemDescriptor[]
     ---@param recipe integer[]
     ---@param count integer
+    ---@param r Reserve?
+    ---@param callback function?
     ---@return TurtleCraftTask
-    function TurtleCraftTask.craft(items, recipe, count)
+    function TurtleCraftTask.craft(items, recipe, count, r, callback)
         local turt = allocateTurtle()
         local allocateTask = TaskLib.Task.new({ function()
             -- TODO fix allocation
         end })
         ---@type PushTask
-        local pushIngredientsTask = PushTask.new():addSubtask(allocateTask)
+        local pushIngredientsTask = PushTask.new(r):addSubtask(allocateTask)
         for i, v in ipairs(items) do
             local slots = {}
             for slot, item in pairs(recipe) do
@@ -184,12 +197,14 @@ function lib.wrap(invList, resList, workList)
                 end
             end
         end }):addSubtask(pushIngredientsTask)
-        local pullProductTask = PullTask.fromSlot(turt, 1, count):addSubtask(craftingTask)
+        local pullProductTask = PullTask.fromSlot(turt, 1, count, r):addSubtask(craftingTask)
         local freeTask = TaskLib.Task.new({ function()
             freeTurtle(turt)
         end }):addSubtask(pullProductTask)
 
-        return setmetatable(freeTask, TurtleCraftTask)
+        local callbackTask = TaskLib.Task.new({ callback }):addSubtask(freeTask)
+
+        return setmetatable(callbackTask, TurtleCraftTask)
     end
 
     ---Start this wrapper's coroutine

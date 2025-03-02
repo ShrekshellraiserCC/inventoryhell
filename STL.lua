@@ -188,7 +188,7 @@ local function Scheduler()
             end
             return 0
         elseif not ok then
-            error(filter)
+            error(debug.traceback(t.thread, filter), 0)
         end
         executingThreads[#executingThreads + 1] = t
         return 1
