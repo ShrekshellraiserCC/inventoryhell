@@ -19,6 +19,7 @@
 ---@field subtasks Task[]
 ---@field priority number?
 ---@field callback TaskCallback?
+---@field width integer
 local Task__index = {}
 local Task = { __index = Task__index }
 
@@ -84,6 +85,7 @@ end
 function Task__index:addSubtask(t)
     t:setPriority(self.priority)
     self.subtasks[#self.subtasks + 1] = t
+    self.width = math.max(t.width, self.width)
     return self
 end
 
@@ -105,6 +107,7 @@ function Task.new(funcs)
     self.subtasks = {}
     lastid = lastid + 1
     self.funcs = funcs
+    self.width = #funcs
     return self
 end
 
@@ -129,6 +132,8 @@ local function Scheduler()
     ---Number of threads with a given TaskID, decrement when threads die
     ---@type table<TaskID,number>
     local taskThreadCounts = {}
+    ---@type table<TaskID,number>
+    local taskThreadWidth = {}
     ---Number of items moved by a given TaskID
     ---@type table<TaskID,number>
     local taskMovedItems = {}
@@ -139,7 +144,7 @@ local function Scheduler()
     local function queue(t)
         queuedThreads[#queuedThreads + 1] = t
         taskThreadCounts[t.id] = (taskThreadCounts[t.id] or 0) + 1
-        taskMovedItems[t.id] = 0
+        taskMovedItems[t.id] = taskMovedItems[t.id] or 0
     end
 
     ---Queue a task's subtasks to be ran
@@ -154,6 +159,7 @@ local function Scheduler()
     ---@param t Task
     function run.queueTask(t)
         queueSubtasks(t)
+        taskThreadWidth[t.id] = t.width
         local threads = t:_getThreads()
         for _, v in ipairs(threads) do
             queue(v)
@@ -165,7 +171,7 @@ local function Scheduler()
     ---@return boolean
     local function areDependsMet(t)
         for i, v in ipairs(t.depends) do
-            if taskThreadCounts[v] ~= 0 then
+            if taskThreadCounts[v] and taskThreadCounts[v] ~= 0 then
                 return false
             end
         end
@@ -182,6 +188,7 @@ local function Scheduler()
             taskThreadCounts[t.id] = taskThreadCounts[t.id] - 1
             taskMovedItems[t.id] = taskMovedItems[t.id] + (filter or 0)
             if taskThreadCounts[t.id] == 0 then
+                taskThreadCounts[t.id] = nil
                 if t.callback then
                     t.callback(taskMovedItems[t.id])
                 end
@@ -191,7 +198,17 @@ local function Scheduler()
             error(debug.traceback(t.thread, filter), 0)
         end
         executingThreads[#executingThreads + 1] = t
-        return 1
+        return taskThreadWidth[t.id]
+    end
+
+    local function getTaskCount()
+        local count = 0
+        for k, v in pairs(taskThreadCounts) do
+            if v > 0 then
+                count = count + taskThreadWidth[k]
+            end
+        end
+        return count
     end
 
     ---Pull ready-to-execute tasks from the queue
@@ -202,14 +219,14 @@ local function Scheduler()
             end
             return a.priority > b.priority
         end)
-        local taskCount = #executingThreads
+        local taskCount = getTaskCount()
         ---@type number[]
         local toAdd = {}
         for i, v in ipairs(queuedThreads) do
             if taskCount >= TASK_LIMIT then
                 break
             end
-            if areDependsMet(v) then
+            if areDependsMet(v) and taskCount + taskThreadWidth[v.id] < TASK_LIMIT then
                 taskCount = taskCount + makeTaskActive(v)
                 toAdd[#toAdd + 1] = i
             end
@@ -229,6 +246,7 @@ local function Scheduler()
         taskThreadCounts[task.id] = taskThreadCounts[task.id] - 1
         taskMovedItems[task.id] = taskMovedItems[task.id] + filter
         if taskThreadCounts[task.id] == 0 then
+            taskThreadCounts[task.id] = nil
             if task.callback then
                 task.callback(taskMovedItems[task.id])
             end
@@ -244,7 +262,11 @@ local function Scheduler()
     end
     local function debugOverlay()
         text(1, "E:%d,Q:%d", #executingThreads, #queuedThreads)
-        text(2, "tTC[%s]", table.concat(taskThreadCounts, " "))
+        local s = ""
+        for i, v in pairs(taskThreadCounts) do
+            s = s .. " " .. v
+        end
+        text(2, "tTC[%s]", s)
     end
 
     ---Tick the task list
