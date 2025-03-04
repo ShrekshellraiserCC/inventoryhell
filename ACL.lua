@@ -128,11 +128,13 @@ function lib.wrap(invList)
         return self
     end
 
+    ---@alias InventoryProvider fun():InventoryCompatible
+
     ---Distribue an item to a list of slots, with limit in each slot
     --- * limit items will be placed in each slot unless:
     ---   * no more matching items remain in the storage
     ---   * no more items are accepted in the slots
-    ---@param to InventoryCompatible
+    ---@param to InventoryCompatible|InventoryProvider
     ---@param item ItemDescriptor
     ---@param slots integer[]
     ---@param limit integer
@@ -140,6 +142,9 @@ function lib.wrap(invList)
     function PushTask__index:distributeToSlots(to, item, slots, limit)
         for i, slot in ipairs(slots) do
             self.funcs[#self.funcs + 1] = function()
+                if type(to) == "function" then
+                    to = to()
+                end
                 local moved = self.r:pushItems(to, item, limit, slot)
                 return moved
             end
@@ -151,7 +156,7 @@ function lib.wrap(invList)
     --- * limit items will be placed in the slot unless:
     ---   * no more matching items remain in the storage
     ---   * no more items are accepted in the slots
-    ---@param to InventoryCompatible
+    ---@param to InventoryCompatible|InventoryProvider
     ---@param item ItemDescriptor
     ---@param slot integer
     ---@param limit integer
@@ -164,11 +169,15 @@ function lib.wrap(invList)
     --- * limit is reached (if a limit is supplied)
     --- * no more matching items are accepted by the inventory
     --- * no more matching items remain in the storage
+    ---@param to InventoryCompatible|InventoryProvider
     ---@param item ItemDescriptor
     ---@param limit integer?
     ---@return self
     function PushTask__index:dumbPush(to, item, limit)
         local f = function()
+            if type(to) == "function" then
+                to = to()
+            end
             return self.r:pushItems(to, item, limit)
         end
         self.funcs[#self.funcs + 1] = f
@@ -182,7 +191,7 @@ function lib.wrap(invList)
     this.PullTask = PullTask
 
     ---Pull an item from a slot
-    ---@param from InventoryCompatible
+    ---@param from InventoryCompatible|InventoryProvider
     ---@param slot integer
     ---@param limit integer?
     ---@param r Reserve?
@@ -190,6 +199,9 @@ function lib.wrap(invList)
     function PullTask.fromSlot(from, slot, limit, r)
         local f = function()
             r = r or invReserve
+            if type(from) == "function" then
+                from = from()
+            end
             return r:pullItems(from, slot, limit)
         end
         return setmetatable(TaskLib.Task.new({ f }), PullTask)
@@ -209,10 +221,13 @@ function lib.wrap(invList)
     ---@param callback function?
     ---@return TurtleCraftTask
     function TurtleCraftTask.craft(items, recipe, count, r, callback)
-        local turt = allocateTurtle()
+        local turt
         local allocateTask = TaskLib.Task.new({ function()
-            -- TODO fix allocation
+            turt = allocateTurtle()
         end })
+        local function getTurtle()
+            return turt
+        end
         ---@type PushTask
         local pushIngredientsTask = PushTask.new(r):addSubtask(allocateTask)
         for i, v in ipairs(items) do
@@ -222,7 +237,7 @@ function lib.wrap(invList)
                     slots[#slots + 1] = turtleSlotList[slot]
                 end
             end
-            pushIngredientsTask:distributeToSlots(turt, v, slots, count)
+            pushIngredientsTask:distributeToSlots(getTurtle, v, slots, count)
         end
         local craftingTask = TaskLib.Task.new({ function()
             wmodem.transmit(turtlePort, turtlePort, { "CRAFT", turt })
@@ -233,7 +248,7 @@ function lib.wrap(invList)
                 end
             end
         end }):addSubtask(pushIngredientsTask)
-        local pullProductTask = PullTask.fromSlot(turt, 1, count, r):addSubtask(craftingTask)
+        local pullProductTask = PullTask.fromSlot(getTurtle, 1, count, r):addSubtask(craftingTask)
         local freeTask = TaskLib.Task.new({ function()
             freeTurtle(turt)
         end }):addSubtask(pullProductTask)
