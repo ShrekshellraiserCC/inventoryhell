@@ -27,6 +27,7 @@ parallel.waitForAny(
             if type(message) == "table" then
                 if message[1] == "CRAFT" and message[2] == localName then
                     turtle.craft()
+                    turtle.turnRight()
                     modem.transmit(replyChannel, channel, { "CRAFT_DONE", localName })
                 elseif message[1] == "GET_NAME" then
                     modem.transmit(replyChannel, channel, { "NAME", localName })

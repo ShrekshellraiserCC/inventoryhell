@@ -20,7 +20,7 @@ function lib.wrap(invList)
     this.reserve = invReserve
     invReserve:defrag()
 
-    local turtlePort = 777
+    local turtlePort = 7777
     local wmodem = peripheral.find("modem", function(name, wrapped)
         return not wrapped.isWireless()
     end) --[[@as Modem]]
@@ -34,15 +34,18 @@ function lib.wrap(invList)
     local busyTurtles = {}
     function this.searchForTurtles()
         wmodem.transmit(turtlePort, turtlePort, { "GET_NAME" })
-        local tid = os.startTimer(0.2)
+        local tid = os.startTimer(1)
         ---@type table<string,boolean>
         local foundTurtles = {}
         while true do
             local e, side, channel, replyChannel, message = os.pullEvent()
-            if e == "modem_message" and type(message) == "table" and message[1] == "NAME" then
-                foundTurtles[message[2]] = true
-                os.cancelTimer(tid)
-                tid = os.startTimer(0.2)
+            if e == "modem_message" then
+                if type(message) == "table" and message[1] == "NAME" then
+                    foundTurtles[message[2]] = true
+                    os.cancelTimer(tid)
+                    tid = os.startTimer(1)
+                end
+                print(e)
             elseif e == "timer" and side == tid then
                 break
             end
@@ -253,7 +256,10 @@ function lib.wrap(invList)
             freeTurtle(turt)
         end }):addSubtask(pullProductTask)
 
-        local callbackTask = TaskLib.Task.new({ callback }):addSubtask(freeTask)
+        local callbackTask = freeTask
+        if callback then
+            callbackTask = TaskLib.Task.new({ callback }):addSubtask(freeTask)
+        end
 
         return setmetatable(callbackTask, TurtleCraftTask)
     end
