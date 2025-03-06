@@ -466,7 +466,7 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
     else
         -- merge with partSlot
         local ritem = self.realItems[itemCoord]
-        local toCoord = next(ritem.partSlots)
+        local toCoord = ritem and next(ritem.partSlots)
         if not toCoord then
             -- No partSlot exists, just leave this in place
             self:_setSlot(emptyCoord, itemCoord, moved)
@@ -474,7 +474,7 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
             local toInv, toSlot = coordLib.splitInventoryCoordinate(toCoord)
             local mergeMoved = invCall(emptyInv, "pushItems", toInv, emptySlot, moved, toSlot)
             self:_setSlot(emptyCoord, itemCoord, moved - mergeMoved)
-            local toCount = ritem.partSlots[toCoord]
+            local toCount = ritem.partSlots[toCoord] or 0
             self:_setSlot(toCoord, itemCoord, toCount + mergeMoved)
         end
     end
@@ -632,7 +632,11 @@ end
 ---@param invCoord InventoryCoordinate
 function VirtualInv__index:_emptySlot(invCoord)
     local itemCoord = self.realItemLUT[invCoord]
-    self.ess.free(invCoord)
+    if itemCoord then
+        self.ess.free(invCoord)
+    else
+        self.ess.add(invCoord)
+    end
     if not itemCoord then return end
     local ritem = self.realItems[itemCoord]
     self.realItemLUT[invCoord] = nil
@@ -852,6 +856,11 @@ function Reserve.emptySlotStorage(slotlist)
         for _, slot in ipairs(slotlist) do
             slots[slot] = true
         end
+    end
+    ---Mark a slot as being free
+    ---@param s InventoryCoordinate
+    function ess__index.add(s)
+        slots[s] = true
     end
 
     ---Mark a slot as being free
