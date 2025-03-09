@@ -15,23 +15,25 @@ for i, v in ipairs(chests) do
 end
 local inv = lib.wrap(chestList)
 
+inv.reserve:dump("test.txt")
+
 local stacks = 15
 local stackSize = 12
 
 local cobble = ID.fromName("minecraft:cobblestone")
-local cobbleReserve = assert(inv.reserve:split(cobble, stackSize * 8 * stacks), "Not enough cobble!")
+local coal = ID.fromName("minecraft:coal")
+-- local cobbleReserve = assert(inv.reserve:split(cobble, stackSize * 8 * stacks), "Not enough cobble!")
 
-cobbleReserve:dump("cobbleReserve.txt")
+-- cobbleReserve:dump("cobbleReserve.txt")
+local produced = 8
+local pullSlot = 3
+local count = 2
+local ctask = inv.MachineCraftTask.generic(2)
+    :reserveMachine("furnace")
+    :setRecipe({ cobble, coal }, { 1, { 2, 8 } }, 8)
+    :build()
 
-for i = 1, stacks do
-    local ctask = inv.TurtleCraftTask.craft(
-        { cobble },
-        { 1, 1, 1, 1, nil, 1, 1, 1, 1 },
-        stackSize,
-        cobbleReserve
-    )
-    ctask:queue()
-end
+ctask:queue()
 
 os.queueEvent("dummy")
 inv.run()
