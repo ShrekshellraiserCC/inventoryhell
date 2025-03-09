@@ -297,6 +297,7 @@ local function Scheduler()
     end
 
     function run.run()
+        os.queueEvent("dummy")
         while true do
             debugOverlay()
             local e = table.pack(os.pullEvent())
