@@ -219,6 +219,17 @@ function lib.wrap(invList)
         self.rootTask:addSubtask(t)
     end
 
+    ---@type table<string,table<string,boolean>>
+    local freeMachines = {}
+    ---@type table<string,table<string,boolean>>
+    local busyMachines = {}
+    ---@type table<string,RegisteredMachineType> inv index,slot
+    local registeredMachineTypes = {}
+    ---@type table<string,RegisteredMachine>
+    local registeredMachines = {}
+
+    this.craft = {}
+
     local turtleSlotList = { 1, 2, 3, 5, 6, 7, 9, 10, 11 }
     ---Create a task to craft a grid recipe using a turtle
     ---@param items ItemDescriptor[]
@@ -227,7 +238,7 @@ function lib.wrap(invList)
     ---@param r Reserve?
     ---@param callback function?
     ---@return TurtleCraftTask
-    function TurtleCraftTask.craft(items, recipe, count, r, callback)
+    function this.craft.grid(items, recipe, count, r, callback)
         local turt
         local allocateTask = TaskLib.Task.new({ function()
             turt = allocateTurtle()
@@ -274,24 +285,16 @@ function lib.wrap(invList)
     ---@alias RegisteredMachine {invs:string[],mtype:string}
     ---@alias RegisteredMachineType {slots:SlotMap[],output:SlotMap}
 
-    ---@type table<string,table<string,boolean>>
-    local freeMachines = {}
-    ---@type table<string,table<string,boolean>>
-    local busyMachines = {}
-    ---@type table<string,RegisteredMachineType> inv index,slot
-    local registeredMachineTypes = {}
-    ---@type table<string,RegisteredMachine>
-    local registeredMachines = {}
     ---Reserve a machine for use
     ---@param mtype string
     ---@return string
     ---@return {[1]:string,[2]:integer}[]
     ---@return {[1]:string,[2]:integer}
-    local function allocateMachine(mtype)
+    function this.craft.allocateMachine(mtype)
         local machine = next(freeMachines[mtype])
         if not machine then
             os.pullEvent("machine_freed")
-            return allocateMachine(mtype)
+            return this.craft.allocateMachine(mtype)
         end
         freeMachines[mtype][machine] = nil
         busyMachines[mtype][machine] = true
@@ -310,7 +313,7 @@ function lib.wrap(invList)
 
     ---Free a machine that was previously in use
     ---@param machine string
-    local function freeMachine(machine)
+    function this.craft.freeMachine(machine)
         local mtype = registeredMachines[machine].mtype
         freeMachines[mtype][machine] = true
         busyMachines[mtype][machine] = nil
@@ -321,24 +324,21 @@ function lib.wrap(invList)
     ---@param mtype string
     ---@param slotmap SlotMap[] inv index, slot
     ---@param outputSlot SlotMap inv index, slot
-    local function newMachineType(mtype, slotmap, outputSlot)
+    function this.craft.newMachineType(mtype, slotmap, outputSlot)
         registeredMachineTypes[mtype] = { slots = slotmap, output = outputSlot }
         busyMachines[mtype] = {}
         freeMachines[mtype] = {}
     end
-    this.newMachineType = newMachineType
 
     ---Register a machine of a given type
     ---@param mtype string
     ---@param name string
     ---@param invs string[]?
-    local function registerMachine(mtype, name, invs)
+    function this.craft.registerMachine(mtype, name, invs)
         invs = invs or { name }
         registeredMachines[name] = { invs = invs, mtype = mtype }
         freeMachines[mtype][name] = true
     end
-    this.registerMachine = registerMachine
-
 
     ---@class MachineCraftTaskFactory
     ---@field machine string?
@@ -363,7 +363,7 @@ function lib.wrap(invList)
 
     ---@param count integer
     ---@return MachineCraftTaskFactory
-    function MachineCraftTaskFactory.generic(count)
+    function this.craft.generic(count)
         return setmetatable({ count = count }, MachineCraftTaskFactory)
     end
 
@@ -411,13 +411,13 @@ function lib.wrap(invList)
         local machine, slotlut, output
         local doAllocate = self.machine
         local allocateTask
-        -- if doAllocate then
-        allocateTask = TaskLib.Task.new { function()
-            machine, slotlut, output = allocateMachine(self.machine)
-        end }
-        -- else
-        -- slotlut = assert(self.slotLookup, "No machine or slot lookup set on MachineCraftTask build!")
-        -- end
+        if doAllocate then
+            allocateTask = TaskLib.Task.new { function()
+                machine, slotlut, output = this.craft.allocateMachine(self.machine)
+            end }
+        else
+            slotlut = assert(self.slotLookup, "No machine or slot lookup set on MachineCraftTask build!")
+        end
         local reserve = self.r or this.reserve
         local moveFuncs = {}
         -- Setup pushItem calls
@@ -463,7 +463,7 @@ function lib.wrap(invList)
         local freeTask
         if doAllocate then
             freeTask = TaskLib.Task.new({ function()
-                freeMachine(machine)
+                this.craft.freeMachine(machine)
             end }):addSubtask(moveTask)
         end
         local tailTask = freeTask or moveTask
@@ -472,10 +472,10 @@ function lib.wrap(invList)
     end
 
     local function registerFurnaces()
-        newMachineType("furnace", { { 1, 1 }, { 1, 2 } }, { 1, 3 })
+        this.craft.newMachineType("furnace", { { 1, 1 }, { 1, 2 } }, { 1, 3 })
         for _, v in ipairs(peripheral.getNames()) do
             if v:match("minecraft:furnace") then
-                registerMachine("furnace", v)
+                this.craft.registerMachine("furnace", v)
             end
         end
     end
