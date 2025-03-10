@@ -4,36 +4,13 @@ local ID = require("ItemDescriptor")
 term.clear()
 term.setCursorPos(1, 10)
 
--- print("Sleeping 3 seconds...")
--- sleep(3)
+local test = ID.gateOr(ID.gateAnd(ID.gateNot(ID.fromPattern("minecraft:")), ID.hasTag("minecraft:logs")),
+    ID.fromName("minecraft:stone", ID.WILDCARD))
 
-local chests = { peripheral.find("inventory") }
-local chestList = {}
-for i, v in ipairs(chests) do
-    chestList[i] = peripheral.getName(v)
-    print(i, peripheral.getName(v))
-end
-local inv = lib.wrap(chestList)
+print(test:serialize())
+print(ID.unserialize(test:serialize()):serialize())
 
-inv.reserve:dump("test.txt")
+local test2 = ID.fromName("minecraft:stone")
 
-local stacks = 15
-local stackSize = 12
-
-local cobble = ID.fromName("minecraft:cobblestone")
-local coal = ID.fromName("minecraft:coal")
--- local cobbleReserve = assert(inv.reserve:split(cobble, stackSize * 8 * stacks), "Not enough cobble!")
-
--- cobbleReserve:dump("cobbleReserve.txt")
-local produced = 8
-local pullSlot = 3
-local count = 2
-local ctask = inv.MachineCraftTask.generic(2)
-    :reserveMachine("furnace")
-    :setRecipe({ cobble, coal }, { 1, { 2, 8 } }, 8)
-    :build()
-
-ctask:queue()
-
-os.queueEvent("dummy")
-inv.run()
+print(test2:serialize())
+print(ID.unserialize(test2:serialize()):serialize())
