@@ -1,15 +1,32 @@
 -- Abstract Crafting Lib?
 -- Shrek Inventory Lib
 -- Simple Storage Lib
-local lib = {}
-local expect = require("cc.expect").expect
+local lib            = {}
+local ItemDescriptor = require("ItemDescriptor")
+local shrexpect      = require("shrexpect")
+local coord          = require("Coordinates")
 
-local TaskLib = require("STL")
+local TaskLib        = require("STL")
 
 
 lib.Item = require("ItemDescriptor")
 local VirtualInv = require("VirtualInv")
 lib.Reserve = VirtualInv
+
+---Clone a table
+---@generic T
+---@param t T
+---@return T
+local function clone(t)
+    if type(t) == "table" then
+        local nt = {}
+        for k, v in pairs(t) do
+            nt[k] = clone(v)
+        end
+        return nt
+    end
+    return t
+end
 
 function lib.wrap(invList)
     -- Called 'this' to avoid scope conflictions with 'self'
@@ -116,17 +133,17 @@ function lib.wrap(invList)
     end
 
     ---@class PushTask : QueableTask
-    ---@field r Reserve?
     local PushTask__index = setmetatable({}, QueableTask)
     local PushTask = { __index = PushTask__index }
     this.PushTask = PushTask
 
     ---Create a new PushTask using an optional Reserve r
     ---@param r Reserve?
+    ---@param name string?
     ---@return PushTask|Task
-    function PushTask.new(r)
-        local self = setmetatable(TaskLib.Task.new({}), PushTask)
-        self.r = r or invReserve
+    function PushTask.new(r, name)
+        local self = setmetatable(TaskLib.Task.new({}, name), PushTask)
+        self.reserve = r
         return self
     end
 
@@ -147,7 +164,7 @@ function lib.wrap(invList)
                 if type(to) == "function" then
                     to = to()
                 end
-                local moved = self.r:pushItems(to, item, limit, slot)
+                local moved = (self.reserve or this.reserve):pushItems(to, item, limit, slot)
                 return moved
             end
         end
@@ -180,7 +197,7 @@ function lib.wrap(invList)
             if type(to) == "function" then
                 to = to()
             end
-            return self.r:pushItems(to, item, limit)
+            return (self.reserve or this.reserve):pushItems(to, item, limit)
         end
         self.funcs[#self.funcs + 1] = f
         return self
@@ -196,17 +213,25 @@ function lib.wrap(invList)
     ---@param from InventoryCompatible|InventoryProvider
     ---@param slot integer
     ---@param limit integer?
-    ---@param r Reserve?
-    ---@return PushTask|Task
-    function PullTask.fromSlot(from, slot, limit, r)
+    function PullTask__index:fromSlot(from, slot, limit)
         local f = function()
-            r = r or invReserve
+            local r = self.reserve or invReserve
             if type(from) == "function" then
                 from = from()
             end
             return r:pullItems(from, slot, limit)
         end
-        return setmetatable(TaskLib.Task.new({ f }), PullTask)
+        self.funcs[#self.funcs + 1] = f
+        return self
+    end
+
+    ---@param r Reserve?
+    ---@param name string?
+    ---@return PullTask|Task
+    function PullTask.new(r, name)
+        local self = setmetatable(TaskLib.Task.new({}, name), PullTask)
+        self.reserve = r
+        return self
     end
 
     ---@class TurtleCraftTask : QueableTask
@@ -228,7 +253,123 @@ function lib.wrap(invList)
     ---@type table<string,RegisteredMachine>
     local registeredMachines = {}
 
+    ---@class RegisteredRecipe
+    ---@field type "grid"|string machine type
+    ---@field items ItemDescriptor[]
+    ---@field recipe integer[]|{[1]:integer,[2]:integer}[]
+    ---@field produces integer
+    ---@field product ItemCoordinate
+
+    ---@type table<ItemCoordinate,RegisteredRecipe[]>
+    local registeredRecipes = {}
+
     this.craft = {}
+
+    ---Register a recipe
+    ---@param mtype string
+    ---@param items ItemDescriptor[]
+    ---@param recipe integer[]|{[1]:integer,[2]:integer}[]
+    ---@param product ItemCoordinate
+    ---@param produces integer
+    function this.craft.registerRecipe(mtype, items, recipe, product, produces)
+        ---@type RegisteredRecipe
+        local r = {
+            items = items,
+            type = mtype,
+            recipe = recipe,
+            product = product,
+            produces = produces,
+        }
+        registeredRecipes[product] = registeredRecipes[product] or {}
+        table.insert(registeredRecipes[product], r)
+    end
+
+    ---@param recipe RegisteredRecipe
+    ---@param count integer
+    ---@param jobItemCounts table<string,integer>
+    ---@return MachineCraftTask|TurtleCraftTask?
+    ---@return table<string,integer> jobItemCounts
+    local function tryCraft(recipe, count, jobItemCounts)
+        -- TODO auto split count into multiple crafts
+        --  * For example, I ask for 128 furnaces, split it into two 64 furnace craft tasks.
+        --  * For furnaces, this depends on the fuel used, but for coal split 64 glass into 8 glass per furnace
+        --    Make this behavior optional, per machine type. Choose to prioritize distribution versus centralization.
+        ---@type MachineCraftTask|TurtleCraftTask
+        local task, craftCount
+        if recipe.type == "grid" then
+            task = this.craft.grid(recipe.items, recipe.recipe, math.ceil(count / recipe.produces))
+            craftCount = math.ceil(count / recipe.produces)
+        else
+            task, craftCount = this.craft.generic(count)
+                :reserveMachine(recipe.type)
+                :setRecipe(recipe.items, recipe.recipe, recipe.produces)
+                :build()
+        end
+        jobItemCounts = jobItemCounts or {}
+        local taskItemCounts = {}
+        for _, item in ipairs(recipe.recipe) do
+            if type(item) == "number" then
+                local id = recipe.items[item]:serialize()
+                jobItemCounts[id] = (jobItemCounts[id] or 0) + 1 * craftCount
+                taskItemCounts[id] = (taskItemCounts[id] or 0) + 1 * craftCount
+            else
+                local id = recipe.items[item[1]]:serialize()
+                jobItemCounts[id] = (jobItemCounts[id] or 0) + item[2] * craftCount
+                taskItemCounts[id] = (taskItemCounts[id] or 0) + item[2] * craftCount
+            end
+        end
+        local craftSubtasks = {}
+        for sid, need in pairs(taskItemCounts) do
+            local id = ItemDescriptor.unserialize(sid)
+            local have = this.reserve:getCount(id) - (jobItemCounts[sid] - taskItemCounts[sid])
+            if have < need then
+                local task, newJobItemCounts = this.craft.craft(id, need - have, jobItemCounts)
+                if not task then
+                    -- There's not enough items in this inventory to satisfy this!
+                    return nil, jobItemCounts
+                end
+                craftSubtasks[#craftSubtasks + 1] = task
+                newJobItemCounts[sid] = newJobItemCounts[sid] - (have - need)
+                jobItemCounts = newJobItemCounts
+            end
+        end
+        for _, stask in ipairs(craftSubtasks) do
+            task:addSubtask(stask)
+        end
+        return task, jobItemCounts
+    end
+
+    -- TODO by default craft.craft should accept the first option that works
+    -- add an argument to choose the second, or third, etc, option instead
+    -- allows for the user to scroll through possible crafts until they find
+    -- one that isn't broken
+
+    ---@param item ItemDescriptor|ItemCoordinate
+    ---@param count integer
+    ---@param itemCounts table<string,integer>?
+    ---@return MachineCraftTask|TurtleCraftTask?
+    ---@return table<string,integer> ItemDescriptor string, integer
+    function this.craft.craft(item, count, itemCounts)
+        itemCounts = itemCounts or {}
+        if type(item) == "table" and item:toCoord() then
+            item = item:toCoord()
+        end
+        if type(item) == "table" then
+            -- ItemDescriptor
+            error("NYI")
+        end
+        local craftOptions = {}
+        local task
+        for i, v in pairs(registeredRecipes[item] or {}) do
+            local craftCount = clone(itemCounts)
+            task, craftCount = tryCraft(v, count, craftCount)
+            if task then
+                craftOptions[#craftOptions + 1] = craftCount
+                break -- this is where to TODO that TODO
+            end
+        end
+        return task, craftOptions[1]
+    end
 
     local turtleSlotList = { 1, 2, 3, 5, 6, 7, 9, 10, 11 }
     ---Create a task to craft a grid recipe using a turtle
@@ -242,12 +383,12 @@ function lib.wrap(invList)
         local turt
         local allocateTask = TaskLib.Task.new({ function()
             turt = allocateTurtle()
-        end })
+        end }, "TurtleReserve")
         local function getTurtle()
             return turt
         end
         ---@type PushTask
-        local pushIngredientsTask = PushTask.new(r):addSubtask(allocateTask)
+        local pushIngredientsTask = PushTask.new(r, "TurtlePush"):addSubtask(allocateTask)
         for i, v in ipairs(items) do
             local slots = {}
             for slot, item in pairs(recipe) do
@@ -265,16 +406,16 @@ function lib.wrap(invList)
                     break
                 end
             end
-        end }):addSubtask(pushIngredientsTask)
-        local pullProductTask = PullTask.fromSlot(getTurtle, 1, count, r):addSubtask(craftingTask)
+        end }, "TurtleCraft"):addSubtask(pushIngredientsTask)
+        local pullProductTask = PullTask.new(r, "TurtlePull"):fromSlot(getTurtle, 16, count):addSubtask(craftingTask)
         local freeTask = TaskLib.Task.new({ function()
             freeTurtle(turt)
-        end }):addSubtask(pullProductTask)
+        end }, "TurtleFree"):addSubtask(pullProductTask)
 
         ---@type TurtleCraftTask
         local callbackTask = freeTask
         if callback then
-            callbackTask = TaskLib.Task.new({ callback }):addSubtask(freeTask)
+            callbackTask = TaskLib.Task.new({ callback }, "TurtleCallback"):addSubtask(freeTask)
         end
         callbackTask.rootTask = allocateTask
 
@@ -282,8 +423,45 @@ function lib.wrap(invList)
     end
 
     ---@alias SlotMap {[1]:integer,[2]:integer}
-    ---@alias RegisteredMachine {invs:string[],mtype:string}
-    ---@alias RegisteredMachineType {slots:SlotMap[],output:SlotMap}
+
+    ---@class RegisteredMachine
+    ---@field invs string[]
+    ---@field mtype string
+    ---@field ptype string?
+
+    ---@alias MachineProcess fun(craft:integer,invs:{[1]:string,[2]:integer}[]):function
+
+    ---@class RegisteredMachineType
+    ---@field slots SlotMap[]
+    ---@field output SlotMap
+    ---@field ptype string?
+    ---@field round (fun(n:integer):integer)? Round to most efficient processing interval
+    ---@field process MachineProcess? Function ran alongside item i/o functions
+
+    local function machineRoundType(mtype, n, produces)
+        local round = registeredMachineTypes[mtype].round
+        if round then
+            return round(n)
+        end
+        return math.ceil(n / produces)
+    end
+    local function machineRound(machine, n, produces)
+        local m = registeredMachines[machine]
+        return machineRoundType(m.mtype, n, produces)
+    end
+
+    ---@param callback fun():string,integer,{[1]:string,[2]:integer}[]
+    local function machineProcess(callback)
+        return function()
+            local t = table.pack(callback())
+            local machine = t[1]
+            local m = registeredMachines[machine]
+            if not registeredMachineTypes[m.mtype].process then
+                return
+            end
+            registeredMachineTypes[m.mtype].process(table.unpack(t, 2))
+        end
+    end
 
     ---Reserve a machine for use
     ---@param mtype string
@@ -301,10 +479,11 @@ function lib.wrap(invList)
         -- make slot lookup
         local slotlut = {}
         local rmachine = registeredMachines[machine]
-        for i, v in ipairs(registeredMachineTypes[mtype].slots) do
+        local rmtype = rmachine.mtype
+        for i, v in ipairs(registeredMachineTypes[rmtype].slots) do
             slotlut[i] = { rmachine.invs[v[1]], v[2] }
         end
-        local outputInfo = registeredMachineTypes[mtype].output
+        local outputInfo = registeredMachineTypes[rmtype].output
         local output = {
             rmachine.invs[outputInfo[1]], outputInfo[2]
         }
@@ -315,8 +494,9 @@ function lib.wrap(invList)
     ---@param machine string
     function this.craft.freeMachine(machine)
         local mtype = registeredMachines[machine].mtype
-        freeMachines[mtype][machine] = true
-        busyMachines[mtype][machine] = nil
+        local ptype = registeredMachines[machine].ptype
+        freeMachines[ptype or mtype][machine] = true
+        busyMachines[ptype or mtype][machine] = nil
         os.queueEvent("machine_freed")
     end
 
@@ -324,10 +504,32 @@ function lib.wrap(invList)
     ---@param mtype string
     ---@param slotmap SlotMap[] inv index, slot
     ---@param outputSlot SlotMap inv index, slot
-    function this.craft.newMachineType(mtype, slotmap, outputSlot)
-        registeredMachineTypes[mtype] = { slots = slotmap, output = outputSlot }
+    ---@param round (fun(n:integer):integer)? Round to most efficient processing interval
+    ---@param process MachineProcess? Function ran alongside item i/o functions
+    function this.craft.newMachineType(mtype, slotmap, outputSlot, round, process)
+        registeredMachineTypes[mtype] = {
+            slots = slotmap,
+            output = outputSlot,
+            round = round,
+            process = process
+        }
         busyMachines[mtype] = {}
         freeMachines[mtype] = {}
+    end
+
+    ---Add a machine with the type mtype, which handles crafting via ptype recipes
+    ---@param mtype string
+    ---@param ptype string
+    ---@param slotmap SlotMap[]
+    ---@param outputslot SlotMap
+    ---@param process MachineProcess? Function ran alongside item i/o functions
+    function this.craft.newAlternativeMachineType(mtype, ptype, slotmap, outputslot, process)
+        registeredMachineTypes[mtype] = {
+            slots = slotmap,
+            output = outputslot,
+            ptype = ptype,
+            process = process
+        }
     end
 
     ---Register a machine of a given type
@@ -336,8 +538,9 @@ function lib.wrap(invList)
     ---@param invs string[]?
     function this.craft.registerMachine(mtype, name, invs)
         invs = invs or { name }
-        registeredMachines[name] = { invs = invs, mtype = mtype }
-        freeMachines[mtype][name] = true
+        local ptype = registeredMachineTypes[mtype].ptype
+        registeredMachines[name] = { invs = invs, mtype = mtype, ptype = ptype }
+        freeMachines[ptype or mtype][name] = true
     end
 
     ---@class MachineCraftTaskFactory
@@ -405,20 +608,18 @@ function lib.wrap(invList)
     end
 
     ---Build the constructed machine task
-    ---@return QueableTask
+    ---@return MachineCraftTask
+    ---@return integer craftCount
     function MachineCraftTaskFactory__index:build()
         local checkTime = 0.5
         local machine, slotlut, output
+        local mtype = self.machine
         local doAllocate = self.machine
         local allocateTask
-        if doAllocate then
-            allocateTask = TaskLib.Task.new { function()
-                machine, slotlut, output = this.craft.allocateMachine(self.machine)
-            end }
-        else
-            slotlut = assert(self.slotLookup, "No machine or slot lookup set on MachineCraftTask build!")
-        end
-        local reserve = self.r or this.reserve
+        local craftCount = machineRoundType(mtype, self.count, self.produces)
+        allocateTask = TaskLib.Task.new({ function()
+            machine, slotlut, output = this.craft.allocateMachine(self.machine)
+        end }, "MachineAllocate:" .. mtype)
         local moveFuncs = {}
         -- Setup pushItem calls
         for i, v in ipairs(self.items) do
@@ -429,8 +630,9 @@ function lib.wrap(invList)
                 end
                 if item == i then
                     moveFuncs[#moveFuncs + 1] = function()
+                        local reserve = self.r or this.reserve
                         local toInv, toSlot = table.unpack(slotlut[slot])
-                        local toMove = icount
+                        local toMove = icount * craftCount
                         local moved = 0
                         while moved < toMove do
                             local movedIter = reserve:pushItems(toInv, v, toMove - moved, toSlot)
@@ -445,9 +647,10 @@ function lib.wrap(invList)
         end
         -- Setup pullItems calls
         moveFuncs[#moveFuncs + 1] = function()
+            local reserve = self.r or this.reserve
             local fromInv, fromSlot = table.unpack(output)
             local moved = 0
-            local toMove = self.produces
+            local toMove = self.produces * craftCount
             while moved < toMove do
                 local movedIter = reserve:pullItems(fromInv, fromSlot, toMove - moved)
                 moved = moved + movedIter
@@ -456,23 +659,38 @@ function lib.wrap(invList)
                 end
             end
         end
-        local moveTask = TaskLib.Task.new(moveFuncs)
+        moveFuncs[#moveFuncs + 1] = machineProcess(function()
+            return machine, craftCount, slotlut
+        end)
+        local moveTask = TaskLib.Task.new(moveFuncs, "MachineMove:" .. mtype)
         if doAllocate then
             moveTask:addSubtask(allocateTask)
         end
-        local freeTask
-        if doAllocate then
-            freeTask = TaskLib.Task.new({ function()
-                this.craft.freeMachine(machine)
-            end }):addSubtask(moveTask)
-        end
-        local tailTask = freeTask or moveTask
-        tailTask.rootTask = allocateTask or moveTask
-        return setmetatable(tailTask, MachineCraftTask)
+        local freeTask = TaskLib.Task.new({ function()
+            this.craft.freeMachine(machine)
+        end }, "MachineFree:" .. mtype):addSubtask(moveTask)
+
+        ---@diagnostic disable-next-line: inject-field
+        freeTask.rootTask = allocateTask
+        return setmetatable(freeTask, MachineCraftTask), craftCount
     end
 
     local function registerFurnaces()
-        this.craft.newMachineType("furnace", { { 1, 1 }, { 1, 2 } }, { 1, 3 })
+        this.craft.newMachineType("furnace", { { 1, 1 } }, { 1, 3 }, function(n)
+            return math.ceil(n / 8) * 8
+        end, function(count, invs)
+            local moved = 0
+            local toMove = math.ceil(count / 8)
+            local coal = ItemDescriptor.fromName("minecraft:coal")
+            local inv = invs[1][1]
+            while true do
+                local m = this.reserve:pushItems(inv, coal, toMove - moved, 2)
+                moved = moved + m
+                if moved == toMove then
+                    break
+                end
+            end
+        end)
         for _, v in ipairs(peripheral.getNames()) do
             if v:match("minecraft:furnace") then
                 this.craft.registerMachine("furnace", v)
