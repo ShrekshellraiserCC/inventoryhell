@@ -15,6 +15,8 @@
 
 ---@class Task
 ---@field id TaskID
+---@field name string?
+---@field reserve Reserve?
 ---@field funcs TaskFunction[]
 ---@field subtasks Task[]
 ---@field priority number?
@@ -65,6 +67,10 @@ end
 ---@param r Reserve
 ---@return self
 function Task__index:setReserve(r)
+    self.reserve = r
+    for i, v in pairs(self.subtasks) do
+        v:setReserve(r)
+    end
     return self
 end
 
@@ -86,6 +92,7 @@ function Task__index:addSubtask(t)
     t:setPriority(self.priority)
     self.subtasks[#self.subtasks + 1] = t
     self.width = math.max(t.width, self.width)
+    t.reserve = self.reserve
     return self
 end
 
@@ -99,11 +106,36 @@ function Task__index:_getDependencyIDs()
     return ids
 end
 
+---Get the depth of this task
+---@param level integer?
+function Task__index:getLevel(level)
+    local sublength = -1
+    level = level or 0
+    for i, v in ipairs(self.subtasks) do
+        sublength = math.max(sublength, v:getLevel(level + 1))
+    end
+    return sublength + 1
+end
+
+---Represent this task as a string
+---@return string
+function Task__index:toString()
+    local level = self:getLevel()
+    local s = ""
+    for i, v in ipairs(self.subtasks) do
+        s = s .. v:toString()
+    end
+    s = s .. (" "):rep(level) .. ("*%d %s\n"):format(#self.funcs, self.name or "")
+    return s
+end
+
 local lastid = 1
 ---@param funcs function[]
-function Task.new(funcs)
+---@param name string?
+function Task.new(funcs, name)
     local self = setmetatable({}, Task)
     self.id = lastid
+    self.name = name
     self.subtasks = {}
     lastid = lastid + 1
     self.funcs = funcs

@@ -4,6 +4,7 @@ local modem = peripheral.find("modem", function(name, wrapped)
     return not wrapped.isWireless()
 end)
 modem.open(7777)
+turtle.select(16)
 
 term.clear()
 local w, h = term.getSize()

@@ -211,6 +211,7 @@ end
 ---@param slot integer
 ---@param limit integer?
 ---@return integer
+---@return ItemCoordinate
 function Reserve__index:pullItems(from, slot, limit)
     shrexpect({ "string", "number", "number?" }, { from, slot, limit })
     return self.parent:_pullItems(self, from, slot, limit)
@@ -229,6 +230,17 @@ function Reserve__index:dump(fn)
     local f = assert(fs.open(fn, "w"))
     f.write(self:toString())
     f.close()
+end
+
+---Get the count of items matching a given ItemDescriptor
+---@param id ItemDescriptor
+function Reserve__index:getCount(id)
+    local items = searchForItems(id, self.items)
+    local count = 0
+    for k, v in ipairs(items) do
+        count = count + self.items[v].count
+    end
+    return count
 end
 
 ---Create an empty Reserve
@@ -448,6 +460,7 @@ end
 ---@param fromSlot integer
 ---@param limit integer?
 ---@return integer moved
+---@return ItemCoordinate
 function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
     -- make sure the inventory is in a stable state
     self:_checkScanLock()
@@ -456,7 +469,7 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
     local moved = invCall(emptyInv, "pullItems", fromInv, fromSlot, limit, emptySlot)
     if moved == 0 then
         self.ess.free(emptyCoord)
-        return 0
+        return 0, ""
     end
     local info = invCall(emptyInv, "getItemDetail", emptySlot)
     local itemCoord = coordLib.ItemCoordinate(info.name, info.nbt)
@@ -485,7 +498,7 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
         local vcoord = self:_newVirtSlot()
         self:_setVirtSlot(r, vcoord, itemCoord, moved)
     end
-    return moved
+    return moved, itemCoord
 end
 
 ---Create a new virtual slot

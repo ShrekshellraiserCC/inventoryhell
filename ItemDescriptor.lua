@@ -70,6 +70,15 @@ function ItemDescriptor__index:serialize()
     return s
 end
 
+---If possible, convert this ItemDescriptor to an ItemCoordinate
+---@return ItemCoordinate?
+function ItemDescriptor__index:toCoord()
+    if self.type == "FROM_NAME" and self.nbt ~= Item.WILDCARD then
+        local coord = require("Coordinates")
+        return coord.ItemCoordinate(self.name, self.nbt)
+    end
+end
+
 ---Match items by their specific name
 ---  * NO_NBT assumed!
 ---@param name string

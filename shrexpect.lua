@@ -10,7 +10,7 @@ local function getArrayType(arr)
         -- seems like an array
         t = getType(arr[1])
         for i = 1, math.min(#arr, 10) do
-            if not typesMatch(arr[i], t) then
+            if not typesMatch(getType(arr[i]), t) then
                 -- not a consistent array
                 return
             end
