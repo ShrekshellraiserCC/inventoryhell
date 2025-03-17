@@ -27,6 +27,8 @@ local function parseMessage(msg)
     if msg.side == "server" then return end
     if msg.type == "list" then
         return inv.reserve:list()
+    elseif msg.type == "getSlotUsage" then
+        return inv.reserve:getSlotUsage()
     end
 end
 
@@ -41,5 +43,7 @@ local hostTask = stl.Task.new({ function()
     end
 end }, "Host")
 inv.scheduler.queueTask(hostTask)
+
+inv.reserve:dump("test.txt")
 
 inv.run()

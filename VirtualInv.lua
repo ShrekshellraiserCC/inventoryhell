@@ -712,6 +712,7 @@ function VirtualInv__index:_setSlot(invCoord, itemCoord, count)
         ritem.fullSlots = {}
         ritem.partSlots = {}
         ritem.virtSlots = {}
+        ritem = self.realItems[itemCoord] or ritem -- fix a race condition here by just double checking
     end
     ritem.count = ritem.count + count
     if count == ritem.maxCount then
@@ -769,6 +770,7 @@ function VirtualInv__index:toString()
     local s = "realItems = " .. textutils.serialise(self.realItems)
     s = s .. "\n\n\nvirtSlots = " .. textutils.serialise(self.virtSlots)
     s = s .. "\n\n\nitems = " .. Reserve__index.toString(self)
+    s = s .. "\n\n\nrealSlotList = " .. textutils.serialise(self.realSlotList)
     return s
 end
 
@@ -816,6 +818,35 @@ end
 function VirtualInv__index:scan()
     local f = self:getScanFuncs()
     batchExecute(f, false, 128)
+end
+
+---Get a table of each slots usage expressed as a percentage [0,1]. Non-stackable items have a value of 2.
+---@return number[]
+function VirtualInv__index:getSlotUsage()
+    table.sort(self.realSlotList, function(a, b)
+        local inv1, slot1 = coordLib.splitInventoryCoordinate(a)
+        local inv2, slot2 = coordLib.splitInventoryCoordinate(b)
+        if inv1 == inv2 then
+            return slot1 < slot2
+        end
+        return inv1 < inv2
+    end)
+    local usage = {}
+    for i, coord in ipairs(self.realSlotList) do
+        local item = self.realItemLUT[coord]
+        if not item then
+            usage[i] = 0
+        else
+            local ritem = self.realItems[item]
+            local count = ritem.fullSlots[coord] or ritem.partSlots[coord]
+            if ritem.maxCount == 1 then
+                usage[i] = 2
+            else
+                usage[i] = count / ritem.maxCount
+            end
+        end
+    end
+    return usage
 end
 
 ---@param invs InventoryCompatible[]

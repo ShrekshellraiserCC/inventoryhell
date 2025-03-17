@@ -45,6 +45,12 @@ function clientlib.list()
     return sendAndRecieve({ type = "list", side = "client" })
 end
 
+---Get the usage of each real slot in the inventory as a percentage [0,1]. Non-stackable items have a value of 2.
+---@return number[]
+function clientlib.getSlotUsage()
+    return sendAndRecieve({ type = "getSlotUsage", side = "client" })
+end
+
 function clientlib.open()
     modem = peripheral.find("modem", function(name, wrapped)
         return not wrapped.isWireless()
