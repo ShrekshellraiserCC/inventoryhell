@@ -35,6 +35,9 @@ local function searchForItems(item, tab)
             t[#t + 1] = k
         end
     end
+    table.sort(t, function(a, b)
+        return a.count > b.count
+    end)
     return t
 end
 
@@ -241,6 +244,20 @@ function Reserve__index:getCount(id)
         count = count + self.items[v].count
     end
     return count
+end
+
+---List out items in this reserve
+---@return CCItemInfo[]
+function Reserve__index:list()
+    local list = {}
+    for k, v in pairs(self.items) do
+        list[#list + 1] = clone(v)
+        list[#list].slot = nil
+    end
+    table.sort(list, function(a, b)
+        return a.count > b.count
+    end)
+    return list
 end
 
 ---Create an empty Reserve

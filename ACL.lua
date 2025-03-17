@@ -28,7 +28,10 @@ local function clone(t)
     return t
 end
 
-function lib.wrap(invList)
+---Wrap a list of inventories
+---@param invList string[]
+---@param wmodem Modem?
+function lib.wrap(invList, wmodem)
     -- Called 'this' to avoid scope conflictions with 'self'
     local this = {}
     this.scheduler = TaskLib.Scheduler()
@@ -38,7 +41,7 @@ function lib.wrap(invList)
     invReserve:defrag()
 
     local turtlePort = 7777
-    local wmodem = peripheral.find("modem", function(name, wrapped)
+    wmodem = wmodem or peripheral.find("modem", function(name, wrapped)
         return not wrapped.isWireless()
     end) --[[@as Modem]]
     wmodem.open(turtlePort)
@@ -703,12 +706,12 @@ function lib.wrap(invList)
     ---Does not return, run this in parallel (or another coroutine manager)
     function this.run()
         wmodem.open(turtlePort)
-        this.scheduler.queueTask(TaskLib.Task.new({ function()
-            while true do
-                debugOverlay()
-                sleep(0.05)
-            end
-        end }):setPriority(2))
+        -- this.scheduler.queueTask(TaskLib.Task.new({ function()
+        --     while true do
+        --         debugOverlay()
+        --         sleep(0.05)
+        --     end
+        -- end }):setPriority(2))
         this.scheduler.run()
         wmodem.closeAll()
     end
