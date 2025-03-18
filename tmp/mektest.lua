@@ -1,6 +1,6 @@
-local lib = require("ACL")
-local ID = require("ItemDescriptor")
-local coord = require("Coordinates")
+local lib = require("libs.ACL")
+local ID = require("libs.ItemDescriptor")
+local coord = require("libs.Coordinates")
 
 term.clear()
 term.setCursorPos(1, 5)

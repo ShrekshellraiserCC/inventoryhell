@@ -1,5 +1,5 @@
 local lib = {}
-local Item = require("ItemDescriptor")
+local Item = require("libs.ItemDescriptor")
 local expect = require("cc.expect").expect
 
 ---@param periph string

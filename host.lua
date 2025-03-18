@@ -1,9 +1,8 @@
-local acl = require("ACL")
-local ID = require("ItemDescriptor")
-local coord = require("Coordinates")
-local stl = require("STL")
+local acl = require("libs.ACL")
+local ID = require("libs.ItemDescriptor")
+local stl = require("libs.STL")
 
-local protocol = require("clientlib").protocol
+local protocol = require("libs.clientlib").protocol
 local hostname = "HOST_TEST"
 -- Central host process for the storage system
 local modem = peripheral.find("modem", function(name, wrapped)

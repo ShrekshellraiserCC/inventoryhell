@@ -1,4 +1,4 @@
-local Reserve = require("VirtualInv")
+local Reserve = require("libs.VirtualInv")
 
 
 local function dump(fn, d)
@@ -20,6 +20,6 @@ local r = Reserve.fromInventories({ "minecraft:chest_1" })
 
 wait("Defrag", r)
 r:defrag()
-local Item = require("ItemDescriptor")
+local Item = require("libs.ItemDescriptor")
 local cobble = Item.fromName("minecraft:cobblestone")
 local b = r:split(cobble, 16)

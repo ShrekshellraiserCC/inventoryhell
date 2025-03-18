@@ -1,5 +1,4 @@
-local ID = require "ItemDescriptor"
-local ui = require "ui"
+local ui = require "libs.ui"
 local clientlib = {}
 
 clientlib.protocol = "SHREKSTORAGE"

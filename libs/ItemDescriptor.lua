@@ -74,7 +74,7 @@ end
 ---@return ItemCoordinate?
 function ItemDescriptor__index:toCoord()
     if self.type == "FROM_NAME" and self.nbt ~= Item.WILDCARD then
-        local coord = require("Coordinates")
+        local coord = require("libs.Coordinates")
         return coord.ItemCoordinate(self.name, self.nbt)
     end
 end

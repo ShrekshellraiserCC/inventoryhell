@@ -1,5 +1,5 @@
-local lib = require("ACL")
-local ID = require("ItemDescriptor")
+local lib = require("libs.ACL")
+local ID = require("libs.ItemDescriptor")
 
 term.clear()
 term.setCursorPos(1, 10)

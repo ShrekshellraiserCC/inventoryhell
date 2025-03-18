@@ -1,7 +1,7 @@
-local clientlib = require("clientlib")
-local ID = require("ItemDescriptor")
+local clientlib = require("libs.clientlib")
+local ID = require("libs.ItemDescriptor")
 clientlib.open()
-local ui = require("ui")
+local ui = require("libs.ui")
 ui.applyPallete(term)
 
 local lname = clientlib.modem.getNameLocal()

@@ -1,7 +1,7 @@
 -- Emulate the style of old windows 9x defrag windows, showing the content of the storage
-local clientlib = require("clientlib")
-local bixelbox = require("bixelbox")
-local ui = require("ui")
+local clientlib = require("libs.clientlib")
+local bixelbox = require("libs.bixelbox")
+local ui = require("libs.ui")
 clientlib.open()
 
 local fullColor = colors.blue

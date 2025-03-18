@@ -2,15 +2,14 @@
 -- Shrek Inventory Lib
 -- Simple Storage Lib
 local lib            = {}
-local ItemDescriptor = require("ItemDescriptor")
-local shrexpect      = require("shrexpect")
-local coord          = require("Coordinates")
+local ItemDescriptor = require("libs.ItemDescriptor")
+local shrexpect      = require("libs.shrexpect")
 
-local TaskLib        = require("STL")
+local TaskLib        = require("libs.STL")
 
 
-lib.Item = require("ItemDescriptor")
-local VirtualInv = require("VirtualInv")
+lib.Item = require("libs.ItemDescriptor")
+local VirtualInv = require("libs.VirtualInv")
 lib.Reserve = VirtualInv
 
 ---Clone a table

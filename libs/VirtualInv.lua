@@ -11,9 +11,8 @@
 ---@class InventoryCoordinate : string
 ---@class ItemCoordinate : string
 
-local ID = require("ItemDescriptor")
-local coordLib = require("Coordinates")
-local shrexpect = require("shrexpect")
+local coordLib = require("libs.Coordinates")
+local shrexpect = require("libs.shrexpect")
 
 
 ---@type table<ItemCoordinate,CCItemInfo>
