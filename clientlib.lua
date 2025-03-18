@@ -1,3 +1,4 @@
+local ID = require "ItemDescriptor"
 local clientlib = {}
 
 clientlib.protocol = "SHREKSTORAGE"
@@ -42,19 +43,53 @@ end
 ---List out items in this storage
 ---@return CCItemInfo[]
 function clientlib.list()
-    return sendAndRecieve({ type = "list", side = "client" })
+    return sendAndRecieve({ type = "list", side = "client" })[1]
 end
 
 ---Get the usage of each real slot in the inventory as a percentage [0,1]. Non-stackable items have a value of 2.
 ---@return number[]
 function clientlib.getSlotUsage()
-    return sendAndRecieve({ type = "getSlotUsage", side = "client" })
+    return sendAndRecieve({ type = "getSlotUsage", side = "client" })[1]
+end
+
+---Push items into some inventory
+---@param to string
+---@param item ItemDescriptor
+---@param limit integer?
+---@param toSlot integer?
+---@return integer
+function clientlib.pushItems(to, item, limit, toSlot)
+    return sendAndRecieve({
+        type = "pushItems",
+        side = "client",
+        to = to,
+        item = item:serialize(),
+        limit = limit,
+        toSlot = toSlot
+    })
+end
+
+---@param from string
+---@param slot integer
+---@param limit integer?
+---@return integer
+---@return ItemCoordinate
+function clientlib.pullItems(from, slot, limit)
+    local res = sendAndRecieve({
+        type = "pullItems",
+        side = "client",
+        from = from,
+        slot = slot,
+        limit = limit
+    })
+    return res[1], res[2]
 end
 
 function clientlib.open()
     modem = peripheral.find("modem", function(name, wrapped)
         return not wrapped.isWireless()
     end)
+    clientlib.modem = modem
     rednet.open(peripheral.getName(modem))
     local i = 0
     while not hid do
@@ -64,6 +99,16 @@ function clientlib.open()
         i = i + 1
         if i > maxRetries then
             error("Failed to find a host!", 0)
+        end
+    end
+end
+
+---@param f fun(l:CCItemInfo[])
+function clientlib.subscribeToChanges(f)
+    while true do
+        local sender, msg = rednet.receive(clientlib.protocol)
+        if sender == hid and type(msg) == "table" and msg.type == "inventoryChange" then
+            f(msg.list)
         end
     end
 end

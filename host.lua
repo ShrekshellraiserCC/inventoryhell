@@ -20,8 +20,30 @@ for i, v in ipairs(peripheral.getNames()) do
 end
 local inv = acl.wrap(chestList, modem)
 
+---Try to call a function, returns nil on error
+---@param f function
+---@param args any[]?
+---@param self boolean
+local function tryCall(f, args, self)
+    args = args or {}
+    local pf
+    if self then
+        pf = function()
+            return f(f, table.unpack(args, 1, args.n))
+        end
+    else
+        pf = function()
+            return f(table.unpack(args, 1, args.n))
+        end
+    end
+    local result = table.pack(pcall(pf))
+    if not result[1] then
+        error(result[2])
+    end
+    return table.unpack(result, 2, result.n)
+end
+
 ---@param msg table
----@return table?
 local function parseMessage(msg)
     if type(msg) ~= "table" then return end
     if msg.side == "server" then return end
@@ -29,15 +51,37 @@ local function parseMessage(msg)
         return inv.reserve:list()
     elseif msg.type == "getSlotUsage" then
         return inv.reserve:getSlotUsage()
+    elseif msg.type == "pushItems" then
+        -- return tryCall(inv.reserve.pushItems, msg.args, true)
+        return inv.reserve:pushItems(
+            msg.to,
+            ID.unserialize(msg.item),
+            msg.limit,
+            msg.toSlot)
+        -- return tryCall(inv.reserve.pushItems, {
+        --     msg.to,
+        --     ID.unserialize(msg.item),
+        --     msg.limit,
+        --     msg.toSlot
+        -- }, true)
+    elseif msg.type == "pullItems" then
+        return inv.reserve:pullItems(msg.from, msg.slot, msg.limit)
     end
 end
+
+inv.reserve:setChangedCallback(function(self)
+    rednet.broadcast({
+        type = "inventoryChange",
+        list = self:list()
+    }, protocol)
+end)
 
 local hostTask = stl.Task.new({ function()
     while true do
         local sender, message, prot = rednet.receive(protocol)
-        local response = parseMessage(message)
+        local response = table.pack(parseMessage(message))
         print("got message from", sender)
-        if message and response then
+        if message and #response > 0 then
             rednet.send(sender, { result = response, type = message.type, side = "server" }, protocol)
         end
     end

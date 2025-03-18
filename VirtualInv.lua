@@ -6,6 +6,7 @@
 ---@field nbt string
 ---@field count number
 ---@field maxCount number
+---@field enchantments {level:number,name:string,displayName:string}[]?
 
 ---@class InventoryCoordinate : string
 ---@class ItemCoordinate : string
@@ -300,6 +301,7 @@ end
 ---@field itemLocks table<ItemCoordinate,boolean>
 ---@field scanLocks table<InventoryCompatible,boolean>
 ---@field rootVirtSlotLUT table<ItemCoordinate,InventoryCoordinate>
+---@field changedCallback fun(self:VirtualInv)
 local VirtualInv__index = setmetatable({}, Reserve)
 VirtualInv__index.__type = "VirtualInv"
 local VirtualInv = { __index = VirtualInv__index }
@@ -350,6 +352,9 @@ function VirtualInv__index:_transfer(from, to, desc, limit)
         moved = moved + canMove
         if moved == limit then break end
     end
+    if from == self or to == self then
+        self:_callChangedCallback()
+    end
     return moved
 end
 
@@ -374,6 +379,9 @@ function VirtualInv__index:_absorb(to, from)
             self.virtSlots[fromSlot] = nil
             from.items[itemCoord] = nil
         end
+    end
+    if from == self or to == self then
+        self:_callChangedCallback()
     end
 end
 
@@ -466,6 +474,7 @@ function VirtualInv__index:_pushItems(r, toInv, itemCoord, limit, toSlot)
             break
         end
     end
+    self:_callChangedCallback()
     return moved
 end
 
@@ -515,6 +524,7 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
         local vcoord = self:_newVirtSlot()
         self:_setVirtSlot(r, vcoord, itemCoord, moved)
     end
+    self:_callChangedCallback()
     return moved, itemCoord
 end
 
@@ -790,6 +800,7 @@ function VirtualInv__index:_scanInv(inv, slots)
         end
     end
     self:_freeScanLock(inv)
+    self:_callChangedCallback()
 end
 
 ---Get a list of functions to call in parallel to scan this Reserve
@@ -847,6 +858,18 @@ function VirtualInv__index:getSlotUsage()
         end
     end
     return usage
+end
+
+---Call a function when any of the contents in this inventory change
+---@param f fun(self:VirtualInv)
+function VirtualInv__index:setChangedCallback(f)
+    self.changedCallback = f
+end
+
+function VirtualInv__index:_callChangedCallback()
+    if self.changedCallback then
+        self.changedCallback(self)
+    end
 end
 
 ---@param invs InventoryCompatible[]

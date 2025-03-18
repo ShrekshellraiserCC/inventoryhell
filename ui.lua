@@ -21,9 +21,12 @@ local GNOME = {
     ["yellow"]    = 0xF3F03E
 }
 
-for color, code in pairs(GNOME) do
-    term.setPaletteColor(colors[color], code)
+function ui.applyPallete(dev)
+    for color, code in pairs(GNOME) do
+        dev.setPaletteColor(colors[color], code)
+    end
 end
+
 local colmap = {
     headerBg = colors.blue,
     headerFg = colors.white,
@@ -33,6 +36,8 @@ local colmap = {
     selectedFg = colors.black
 }
 
+ui.colmap = colmap
+
 ---@generic T
 ---@param win Window
 ---@param t T[]
@@ -40,8 +45,11 @@ local colmap = {
 ---@param start integer?
 ---@param getStr fun(v:T):string[]
 ---@param columns string[]
+---@param tick integer
+---@param minWidth table<integer,number>?
 ---@return integer start
-local function drawTable(win, t, selected, start, getStr, columns)
+local function drawTable(win, t, selected, start, getStr, columns, tick, minWidth)
+    minWidth = minWidth or {}
     local w, h = win.getSize()
     w = w - 1
     h = h - 1
@@ -61,6 +69,7 @@ local function drawTable(win, t, selected, start, getStr, columns)
             maxima[j] = math.max(maxima[j] or #columns[j], #s[i][j])
         end
     end
+    local maxColumnWidth = math.floor(w / columnCount)
     local totalStringWidth = 0
     for j = 1, columnCount do
         maxima[j] = maxima[j] or #columns[j]
@@ -69,8 +78,20 @@ local function drawTable(win, t, selected, start, getStr, columns)
     local colWidths = {}
     local totalAllocatedWidth = 0
     for j = 1, columnCount do
-        colWidths[j] = math.floor(w * maxima[j] / totalStringWidth) + 1
+        -- Allow a configurable minimum width for each column
+        colWidths[j] = math.min(
+            math.max(math.floor(w * maxima[j] / totalStringWidth) + 1, minWidth[j] or 0),
+            maxColumnWidth)
         totalAllocatedWidth = totalAllocatedWidth + colWidths[j]
+    end
+    local remaining = w - totalAllocatedWidth
+    local split = math.floor(remaining / columnCount)
+    for j = 1, columnCount do
+        colWidths[j] = colWidths[j] + split
+        remaining = remaining - split
+        totalAllocatedWidth = totalAllocatedWidth + split
+        split = math.min(remaining, split)
+        if split == 0 then break end
     end
     -- Give left over space to last column
     colWidths[columnCount] = colWidths[columnCount] + w - totalAllocatedWidth
@@ -96,7 +117,20 @@ local function drawTable(win, t, selected, start, getStr, columns)
         end
         for j = 1, columnCount do
             win.setCursorPos(x, i - start + 2)
-            win.write(s[i][j])
+            local colStr = s[i][j]
+            if #colStr > colWidths[j] then
+                if i == selected then
+                    local first = (tick - 1) % (#colStr + 2) + 1
+                    local last = first + colWidths[j] - 1
+                    if last > #colStr then
+                        colStr = colStr .. " - " .. colStr
+                    end
+                    colStr = colStr:sub(first, last - 2) .. ".."
+                else
+                    colStr = colStr:sub(1, colWidths[j] - 2) .. ".."
+                end
+            end
+            win.write(colStr)
             x = x + colWidths[j]
         end
         win.setBackgroundColor(colmap.listBg)
@@ -114,14 +148,19 @@ local function drawTable(win, t, selected, start, getStr, columns)
 end
 ui.drawTable = drawTable
 
+local scrollDelay = 0.1
 ---@generic T
 ---@param win Window
 ---@param t T[]
 ---@param getStr fun(v:T):string[]
 ---@param columns string[]
-local function tableGuiWrapper(win, t, getStr, columns)
+---@param onSelect fun(i:integer,v:T)
+---@param minWidth table<integer,number>?
+---@param unlockMouse boolean?
+local function tableGuiWrapper(win, t, getStr, columns, onSelect, minWidth, unlockMouse)
     local selected = 1
     local start = 1
+    local tick = 0
     ---@type "key"|"scroll"
     local lastInteract = "key"
     local function wrapBounds()
@@ -134,6 +173,7 @@ local function tableGuiWrapper(win, t, getStr, columns)
         wrapBounds()
     end
 
+    local tid = os.startTimer(scrollDelay)
     function wrapper.onEvent(e)
         if e[1] == "key" then
             local key = e[2]
@@ -141,17 +181,38 @@ local function tableGuiWrapper(win, t, getStr, columns)
                 selected = selected + 1
                 lastInteract = "key"
                 wrapBounds()
+                tick = 0
+                os.cancelTimer(tid)
+                tid = os.startTimer(scrollDelay)
                 return true
             elseif key == keys.up then
                 selected = selected - 1
                 lastInteract = "key"
                 wrapBounds()
+                tick = 0
+                os.cancelTimer(tid)
+                tid = os.startTimer(scrollDelay)
+                return true
+            elseif key == keys.enter then
+                wrapBounds()
+                onSelect(selected, t[selected])
                 return true
             end
         elseif e[1] == "mouse_scroll" then
-            selected = selected + e[2]
+            if unlockMouse then
+                start = start + e[2]
+            else
+                selected = selected + e[2]
+            end
             lastInteract = "scroll"
+            os.cancelTimer(tid)
+            tid = os.startTimer(scrollDelay)
             wrapBounds()
+            tick = 0
+            return true
+        elseif e[1] == "timer" and e[2] == tid then
+            tick = tick + 1
+            tid = os.startTimer(scrollDelay)
             return true
         end
     end
@@ -160,15 +221,81 @@ local function tableGuiWrapper(win, t, getStr, columns)
         win.setVisible(false)
         win.clear()
         local b
-        -- if lastInteract == "scroll" then
-        --     b = start
-        -- end
-        start = drawTable(win, t, selected, b, getStr, columns)
+        if lastInteract == "scroll" and unlockMouse then
+            b = start
+        end
+        start = drawTable(win, t, selected, b, getStr, columns, tick, minWidth)
         win.setVisible(true)
     end
 
     return wrapper
 end
 ui.tableGuiWrapper = tableGuiWrapper
+
+local keyMultipliers = {
+    a = 1,
+    s = 2,
+    d = 4,
+    f = 8
+}
+local order = {
+    "a", "s", "d", "f"
+}
+
+---@param win Window
+---@param item CCItemInfo
+---@param mult integer
+local function renderGetItemCount(win, item, mult)
+    mult = mult or 1
+    local w, h = win.getSize()
+    win.setBackgroundColor(ui.colmap.listBg)
+    win.setTextColor(ui.colmap.listFg)
+    win.setVisible(false)
+    win.clear()
+    win.setCursorPos(1, 1)
+    win.setBackgroundColor(ui.colmap.selectedBg)
+    win.setTextColor(ui.colmap.selectedFg)
+    win.setCursorPos(1, h)
+    win.clearLine()
+    local s = ""
+    local x = 4
+    win.write("\27Q")
+    for i, v in ipairs(order) do
+        win.setCursorPos(x, h)
+        win.write(("[%s %3d]"):format(v:upper(), mult * keyMultipliers[v]))
+        x = x + 8
+    end
+    win.setBackgroundColor(ui.colmap.listBg)
+    win.setTextColor(ui.colmap.listFg)
+    win.setVisible(true)
+end
+
+---@param win Window
+---@param item CCItemInfo
+---@return integer?
+local function getItemCount(win, item)
+    local heldKeys = {}
+    local mult = 8
+    while true do
+        renderGetItemCount(win, item, mult)
+        local e = { os.pullEvent() }
+        if e[1] == "key" then
+            heldKeys[e[2]] = true
+            if e[2] == keys.enter then
+                return 64
+            elseif keyMultipliers[keys.getName(e[2])] then
+                return keyMultipliers[keys.getName(e[2])] * mult
+            elseif e[2] == keys.q then
+                return
+            end
+        elseif e[1] == "key_up" then
+            heldKeys[e[2]] = nil
+        end
+        mult = heldKeys[keys.leftShift] and 64
+            or heldKeys[keys.leftCtrl] and 1
+            or 8
+    end
+end
+ui.getItemCount = getItemCount
 
 return ui
