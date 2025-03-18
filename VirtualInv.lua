@@ -3,7 +3,7 @@
 
 ---@class CCItemInfo
 ---@field name string
----@field nbt string
+---@field nbt string?
 ---@field count number
 ---@field maxCount number
 ---@field enchantments {level:number,name:string,displayName:string}[]?
@@ -499,7 +499,7 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
     end
     local info = invCall(emptyInv, "getItemDetail", emptySlot)
     local itemCoord = coordLib.ItemCoordinate(info.name, info.nbt)
-    detailedDataCache[itemCoord] = detailedDataCache[itemCoord] or info
+    detailedDataCache[itemCoord] = detailedDataCache[itemCoord] or clone(info)
     if moved == info.maxCount then
         self:_setSlot(emptyCoord, itemCoord, moved)
     else
@@ -517,12 +517,14 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
             self:_setSlot(toCoord, itemCoord, toCount + mergeMoved)
         end
     end
-    local vitem = r.items[itemCoord]
-    if vitem then
-        self:_setVirtSlot(r, vitem.slot, itemCoord, vitem.count + moved)
-    else
-        local vcoord = self:_newVirtSlot()
-        self:_setVirtSlot(r, vcoord, itemCoord, moved)
+    if r ~= self then
+        local vitem = r.items[itemCoord]
+        if vitem then
+            self:_setVirtSlot(r, vitem.slot, itemCoord, vitem.count + moved)
+        else
+            local vcoord = self:_newVirtSlot()
+            self:_setVirtSlot(r, vcoord, itemCoord, moved)
+        end
     end
     self:_callChangedCallback()
     return moved, itemCoord

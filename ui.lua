@@ -1,5 +1,6 @@
 local ui = {}
 
+local scrollDelay = 0.15
 
 -- Credit to Sammy for this palette
 local GNOME = {
@@ -27,6 +28,35 @@ function ui.applyPallete(dev)
     end
 end
 
+---Set the colors of a device
+---@param dev Window|term
+---@param fg color?
+---@param bg color?
+---@return color ofg
+---@return color obg
+function ui.color(dev, fg, bg)
+    local ofg, obg = dev.getTextColor(), dev.getBackgroundColor()
+    if fg then
+        dev.setTextColor(fg)
+    end
+    if bg then
+        dev.setBackgroundColor(bg)
+    end
+    return ofg, obg
+end
+
+---Set the cursor position on a device
+---@param dev Window|term
+---@param x integer?
+---@param y integer?
+---@return integer ox
+---@return integer oy
+function ui.cursor(dev, x, y)
+    local ox, oy = dev.getCursorPos()
+    dev.setCursorPos(x or ox, y or oy)
+    return ox, oy
+end
+
 local colmap = {
     headerBg = colors.blue,
     headerFg = colors.white,
@@ -37,6 +67,22 @@ local colmap = {
 }
 
 ui.colmap = colmap
+
+
+---@param s string
+---@param w integer
+---@param tick integer
+local function scrollingText(s, w, tick)
+    if #s > w then
+        local first = (tick - 1) % (#s + 2) + 1
+        local last = first + w
+        if last > #s then
+            s = s .. " - " .. s
+        end
+        s = s:sub(first, last - 3) .. ".."
+    end
+    return s
+end
 
 ---@generic T
 ---@param win Window
@@ -117,18 +163,9 @@ local function drawTable(win, t, selected, start, getStr, columns, tick, minWidt
         end
         for j = 1, columnCount do
             win.setCursorPos(x, i - start + 2)
-            local colStr = s[i][j]
-            if #colStr > colWidths[j] then
-                if i == selected then
-                    local first = (tick - 1) % (#colStr + 2) + 1
-                    local last = first + colWidths[j] - 1
-                    if last > #colStr then
-                        colStr = colStr .. " - " .. colStr
-                    end
-                    colStr = colStr:sub(first, last - 2) .. ".."
-                else
-                    colStr = colStr:sub(1, colWidths[j] - 2) .. ".."
-                end
+            local colStr = scrollingText(s[i][j], colWidths[j], 1)
+            if i == selected then
+                colStr = scrollingText(s[i][j], colWidths[j], tick)
             end
             win.write(colStr)
             x = x + colWidths[j]
@@ -148,7 +185,6 @@ local function drawTable(win, t, selected, start, getStr, columns, tick, minWidt
 end
 ui.drawTable = drawTable
 
-local scrollDelay = 0.1
 ---@generic T
 ---@param win Window
 ---@param t T[]
@@ -245,19 +281,43 @@ local order = {
 ---@param win Window
 ---@param item CCItemInfo
 ---@param mult integer
-local function renderGetItemCount(win, item, mult)
+---@param tick integer
+local function renderGetItemCount(win, item, mult, tick)
     mult = mult or 1
     local w, h = win.getSize()
     win.setBackgroundColor(ui.colmap.listBg)
     win.setTextColor(ui.colmap.listFg)
     win.setVisible(false)
     win.clear()
+    local c = "x" .. tostring(item.count)
+    win.setCursorPos(w - #c, 3)
+    win.write(c)
+    local name = scrollingText(item.displayName, w - 4 - #c, tick)
+    win.setCursorPos(2, 3)
+    win.write(name)
+    win.setCursorPos(3, 4)
+    win.write(scrollingText(item.name, w - 8, tick))
+    win.setCursorPos(w - 4, 4)
+    win.write(string.sub(item.nbt or "", 1, 4))
+    local y = 5
+    if item.enchantments then
+        win.setCursorPos(3, y)
+        win.write("Enchantments")
+        y = y + 1
+        for i, v in ipairs(item.enchantments) do
+            win.setCursorPos(4, y + i - 1)
+            win.write(scrollingText(v.displayName, w - 5, tick))
+        end
+    end
     win.setCursorPos(1, 1)
+    win.setBackgroundColor(ui.colmap.headerBg)
+    win.setTextColor(ui.colmap.headerFg)
+    win.clearLine()
+    win.write("Item Request")
     win.setBackgroundColor(ui.colmap.selectedBg)
     win.setTextColor(ui.colmap.selectedFg)
     win.setCursorPos(1, h)
     win.clearLine()
-    local s = ""
     local x = 4
     win.write("\27Q")
     for i, v in ipairs(order) do
@@ -276,13 +336,15 @@ end
 local function getItemCount(win, item)
     local heldKeys = {}
     local mult = 8
+    local tick = 0
+    local tid = os.startTimer(scrollDelay)
     while true do
-        renderGetItemCount(win, item, mult)
+        renderGetItemCount(win, item, mult, tick)
         local e = { os.pullEvent() }
         if e[1] == "key" then
             heldKeys[e[2]] = true
             if e[2] == keys.enter then
-                return 64
+                return item.maxCount
             elseif keyMultipliers[keys.getName(e[2])] then
                 return keyMultipliers[keys.getName(e[2])] * mult
             elseif e[2] == keys.q then
@@ -290,6 +352,9 @@ local function getItemCount(win, item)
             end
         elseif e[1] == "key_up" then
             heldKeys[e[2]] = nil
+        elseif e[1] == "timer" and e[2] == tid then
+            tid = os.startTimer(scrollDelay)
+            tick = tick + 1
         end
         mult = heldKeys[keys.leftShift] and 64
             or heldKeys[keys.leftCtrl] and 1

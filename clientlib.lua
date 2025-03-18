@@ -1,4 +1,5 @@
 local ID = require "ItemDescriptor"
+local ui = require "ui"
 local clientlib = {}
 
 clientlib.protocol = "SHREKSTORAGE"
@@ -11,10 +12,12 @@ local maxRetries = 3
 
 ---Show an activity throbber in the corner
 local function showThrobber(i)
-    local ox, oy = term.getCursorPos()
-    term.setCursorPos(1, 1)
+    local w, h = term.getSize()
+    local ox, oy = ui.cursor(term, w, 1)
+    local ofg, obg = ui.color(term, ui.colmap.headerFg, ui.colmap.headerBg)
     term.write(throbberStates[(i % #throbberStates) + 1])
-    term.setCursorPos(ox, oy)
+    ui.color(term, ofg, obg)
+    ui.cursor(term, ox, oy)
 end
 
 local function sendAndRecieve(msg)
