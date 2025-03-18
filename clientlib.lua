@@ -6,37 +6,55 @@ clientlib.protocol = "SHREKSTORAGE"
 
 local hid, modem
 
-local throbberStates = { "|", "/", "-", "\\" }
+local throbberStates = { "\129", "\130", "\132", "\136" }
+local ackThrobberStates = { "\x85", "\x83", "\x8a", "\x8c" }
+--{ "\x8d", "\x85", "\x87", "\x83", "\x8b", "\x8a", "\x8e", "\x8c" }
+--{ "\3", "\4", "\5", "\6" }
+--{ "\186", "\7" }
+--{ "|", "/", "-", "\\" }
 local maxTimeouts = 10
-local maxRetries = 3
+
+clientlib.throbberState = " "
+
+local function getThrobberChar(i, gotAck)
+    return gotAck and ackThrobberStates[(i % #ackThrobberStates) + 1]
+        or throbberStates[(i % #throbberStates) + 1]
+end
 
 ---Show an activity throbber in the corner
-local function showThrobber(i)
-    local w, h = term.getSize()
-    local ox, oy = ui.cursor(term, w, 1)
-    local ofg, obg = ui.color(term, ui.colmap.headerFg, ui.colmap.headerBg)
-    term.write(throbberStates[(i % #throbberStates) + 1])
-    ui.color(term, ofg, obg)
-    ui.cursor(term, ox, oy)
+local function showThrobber(i, gotAck)
+    clientlib.throbberState = getThrobberChar(i, gotAck)
+    clientlib.renderThrobber(term)
+end
+function clientlib.renderThrobber(win)
+    local w, h = win.getSize()
+    local ox, oy = ui.cursor(win, w, 1)
+    local ofg, obg = ui.color(win, ui.colmap.headerFg, ui.colmap.headerBg)
+    win.write(clientlib.throbberState)
+    ui.color(win, ofg, obg)
+    ui.cursor(win, ox, oy)
 end
 
 local function sendAndRecieve(msg)
     rednet.send(hid, msg, clientlib.protocol)
     local i = 0
     local r = 0
+    local gotAck = false
     while true do
-        showThrobber(i)
+        showThrobber(i, gotAck)
         local sender, response = rednet.receive(clientlib.protocol, 0.2)
-        if sender == hid and type(response) == "table" and response.type == msg.type and response.side == "server" then
-            return response.result
+        if sender == hid and type(response) == "table" and response.side == "server" then
+            if response.type == msg.type then
+                clientlib.throbberState = " "
+                return response.result
+            elseif response.type == "ACK" and response.ftype == msg.type then
+                gotAck = true
+            end
         elseif sender == nil then
             i = i + 1
         end
-        if i > maxTimeouts then
+        if i > maxTimeouts and not gotAck then
             r = r + 1
-            if r > maxRetries then
-                error("Connection to server timed out!", 0)
-            end
             i = 0
             rednet.send(hid, msg, clientlib.protocol)
         end
@@ -95,15 +113,23 @@ function clientlib.open()
     clientlib.modem = modem
     rednet.open(peripheral.getName(modem))
     local i = 0
+    local ofg, obg = ui.color(term, ui.colmap.listFg, ui.colmap.listBg)
+    term.clear()
+    term.setCursorPos(1, 1)
+    ui.color(term, ui.colmap.headerFg, ui.colmap.headerBg)
+    term.clearLine()
+    term.write("Searching for Storage")
     while not hid do
         showThrobber(i)
-        -- hid = rednet.lookup(clientlib.protocol)
-        hid = 0
+        hid = rednet.lookup(clientlib.protocol)
+        -- hid = 0
         i = i + 1
-        if i > maxRetries then
-            error("Failed to find a host!", 0)
-        end
     end
+    ui.color(term, ui.colmap.headerFg, ui.colmap.headerBg)
+    term.setCursorPos(1, 1)
+    term.clearLine()
+    term.write("Found Storage")
+    ui.color(term, ofg, obg)
 end
 
 ---@param f fun(l:CCItemInfo[])

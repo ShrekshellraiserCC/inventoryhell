@@ -69,23 +69,51 @@ local function parseMessage(msg)
     end
 end
 
-inv.reserve:setChangedCallback(function(self)
+local function onChanged(self)
     rednet.broadcast({
         type = "inventoryChange",
         list = self:list()
     }, protocol)
-end)
+end
+inv.reserve:setChangedCallback(onChanged)
+onChanged(inv.reserve)
 
-local hostTask = stl.Task.new({ function()
+local messageQueuedEvent = "message_queued"
+
+---@type {message:table,sender:number}[]
+local messageQueue = {}
+local function processMessageThread()
     while true do
-        local sender, message, prot = rednet.receive(protocol)
-        local response = table.pack(parseMessage(message))
-        print("got message from", sender)
-        if message and #response > 0 then
-            rednet.send(sender, { result = response, type = message.type, side = "server" }, protocol)
+        local msg = table.remove(messageQueue, 1)
+        if msg then
+            local response = table.pack(parseMessage(msg.message))
+            print("got message from", msg.sender)
+            if msg.message and #response > 0 then
+                rednet.send(msg.sender, { result = response, type = msg.message.type, side = "server" }, protocol)
+            end
+        else
+            os.pullEvent(messageQueuedEvent)
         end
     end
-end }, "Host")
+end
+
+local f = { function()
+    while true do
+        local sender, message, prot = rednet.receive(protocol)
+        if type(message) == "table" then
+            messageQueue[#messageQueue + 1] = { message = message, sender = sender }
+            print("Queued message from", sender)
+            os.queueEvent(messageQueuedEvent)
+            rednet.send(sender, { type = "ACK", ftype = message.type, side = "server" }, protocol)
+        end
+    end
+end }
+
+for i = 1, 1 do
+    f[#f + 1] = processMessageThread
+end
+
+local hostTask = stl.Task.new(f, "Host")
 inv.scheduler.queueTask(hostTask)
 
 inv.reserve:dump("test.txt")

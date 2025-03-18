@@ -54,6 +54,7 @@ end)
 local function render()
     wrap.setTable(list)
     wrap.draw()
+    clientlib.renderThrobber(term)
 end
 
 local function emptyThread()
