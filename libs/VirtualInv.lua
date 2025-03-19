@@ -832,9 +832,14 @@ function VirtualInv__index:scan()
     batchExecute(f, false, 128)
 end
 
+---@class FragMap
+---@field [number] number 'slot' -> percentage [0,1]
+---@field nostack table<number,boolean> slots containing non-stacking items
+---@field invs table<string,number[]> inventory -> 'slot'[]
+
 ---Get a table of each slots usage expressed as a percentage [0,1]. Non-stackable items have a value of 2.
----@return number[]
-function VirtualInv__index:getSlotUsage()
+---@return FragMap
+function VirtualInv__index:getFragMap()
     table.sort(self.realSlotList, function(a, b)
         local inv1, slot1 = coordLib.splitInventoryCoordinate(a)
         local inv2, slot2 = coordLib.splitInventoryCoordinate(b)
@@ -843,19 +848,25 @@ function VirtualInv__index:getSlotUsage()
         end
         return inv1 < inv2
     end)
-    local usage = {}
+    ---@type FragMap
+    local usage = {
+        nostack = {},
+        invs = {}
+    }
     for i, coord in ipairs(self.realSlotList) do
         local item = self.realItemLUT[coord]
+        local inv, slot = coordLib.splitInventoryCoordinate(coord)
+        usage.invs[inv] = usage.invs[inv] or {}
+        usage.invs[inv][#usage.invs[inv] + 1] = i
         if not item then
             usage[i] = 0
         else
             local ritem = self.realItems[item]
             local count = ritem.fullSlots[coord] or ritem.partSlots[coord]
             if ritem.maxCount == 1 then
-                usage[i] = 2
-            else
-                usage[i] = count / ritem.maxCount
+                usage.nostack[i] = true
             end
+            usage[i] = count / ritem.maxCount
         end
     end
     return usage

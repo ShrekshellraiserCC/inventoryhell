@@ -477,4 +477,74 @@ local function reread(win, x, y, w)
 end
 ui.reread = reread
 
+local fullColor = colors.blue
+local partColor = colors.lightBlue
+local emptyColor = colors.white
+local nonStackColor = colors.red
+
+---@param usage FragMap
+---@param idxLut number[]?
+---@param sy integer
+---@param w integer
+local function drawList(box, usage, idxLut, sy, w)
+    local lasty = 0
+    for i, v in ipairs(idxLut or usage) do
+        local percent = v
+        local idx = i
+        if idxLut then
+            percent = usage[v]
+            idx = v
+        end
+        local x = (i - 1) % w + 1
+        local y = math.floor((i - 1) / w) + math.floor(sy * 1.5)
+        local color = partColor
+        if percent == 1 then
+            color = fullColor
+        elseif percent == 0 then
+            color = emptyColor
+        end
+        if usage.nostack[idx] then
+            color = nonStackColor
+        end
+        lasty = math.ceil(y / 1.5)
+        box:set_pixel(x, y, color)
+    end
+    return lasty
+end
+---Draw a FragMap
+---@param pwin Window
+---@param usage FragMap
+---@param sx integer
+---@param sy integer
+---@param w integer
+---@param h integer
+---@param labels boolean Show slot usage by inventory
+function ui.drawFragMap(pwin, usage, sx, sy, w, h, labels)
+    local bixelbox = require("libs.bixelbox")
+    local win = window.create(pwin, sx, sy, w, h, true)
+    local box = bixelbox.new(win, colors.black)
+    win.setBackgroundColor(colors.black)
+    box:clear(colors.black)
+    if labels then
+        local y = 1
+        local invStart = {}
+        local invList = {}
+        for inv, idxLut in pairs(usage.invs) do
+            invList[#invList + 1] = inv
+            invStart[inv] = y
+            y = drawList(box, usage, idxLut, y + 1, w) + 1
+        end
+        box:render()
+        ui.color(win, ui.colmap.listFg, ui.colmap.listBg)
+        for i, inv in ipairs(invList) do
+            local y = invStart[inv]
+            win.setCursorPos(1, y)
+            win.write(inv)
+        end
+    else
+        drawList(box, usage, nil, 1, w)
+        box:render()
+    end
+end
+
 return ui

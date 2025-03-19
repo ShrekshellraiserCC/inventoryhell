@@ -48,8 +48,8 @@ local function parseMessage(msg)
     if msg.side == "server" then return end
     if msg.type == "list" then
         return inv.reserve:list()
-    elseif msg.type == "getSlotUsage" then
-        return inv.reserve:getSlotUsage()
+    elseif msg.type == "getFragMap" then
+        return inv.reserve:getFragMap()
     elseif msg.type == "pushItems" then
         -- return tryCall(inv.reserve.pushItems, msg.args, true)
         return inv.reserve:pushItems(

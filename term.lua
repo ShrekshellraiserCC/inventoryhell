@@ -8,6 +8,7 @@ local lname = clientlib.modem.getNameLocal()
 local fullList = clientlib.list()
 
 local searchBarOnTop = false
+local displayExtra = false
 
 local mainWindow = window.create(term.current(), 1, 1, term.getSize())
 local w, h = mainWindow.getSize()
@@ -61,6 +62,7 @@ end
 ---@field render fun(tlib:TermLib)
 ---@field onEvent fun(e:any[],tlib:TermLib):boolean
 ---@field setValue fun(...)?
+---@field onSet fun()?
 
 ---@type table<string,RegisteredClientUI>
 local registeredUIs = {}
@@ -70,11 +72,13 @@ local uiList = {}
 ---@param render fun()
 ---@param onEvent fun(e:any[]):boolean
 ---@param setValue fun(...)?
-local function registerUI(name, render, onEvent, setValue)
+---@param onSet fun()?
+local function registerUI(name, render, onEvent, setValue, onSet)
     registeredUIs[name] = {
         render = render,
         onEvent = onEvent,
-        setValue = setValue
+        setValue = setValue,
+        onSet = onSet
     }
     uiList[#uiList + 1] = name
 end
@@ -85,6 +89,9 @@ local function setUI(name)
     -- make sure user inputs aren't carried to a different screen
     os.queueEvent("event_clense")
     os.pullEvent("event_clense")
+    if activeUI.onSet then
+        activeUI.onSet()
+    end
 end
 
 do
@@ -105,6 +112,10 @@ do
 end
 
 do
+    local columns = { "Count", "Name" }
+    if not displayExtra then
+        columns[#columns + 1] = "Extra"
+    end
     local wrap = ui.tableGuiWrapper(listWindow, {} --[[@as table<integer,CCItemInfo>]], function(v)
         local es = ""
         if v.enchantments then
@@ -114,7 +125,7 @@ do
             es = es:sub(1, #es - 1)
         end
         return { tostring(v.count), v.displayName, es }
-    end, { "Count", "Name", "Extra" }, function(i, v)
+    end, { "Count", "Name" }, function(i, v)
         tlib.win.input.setCursorBlink(false)
         local want = ui.getItemCount(mainWindow, v)
         if not want then return end
@@ -161,6 +172,22 @@ do
     end)
 end
 
+local fragMap = clientlib.getFragMap()
+do
+    local fragMapDraw = function()
+        ui.color(tlib.win.main, ui.colmap.headerFg, ui.colmap.headerBg)
+        ui.cursor(tlib.win.main, 1, 1)
+        tlib.win.main.clearLine()
+        tlib.win.main.write("FragMap View")
+        clientlib.renderThrobber(tlib.win.main)
+        ui.drawFragMap(tlib.win.main, fragMap, 2, 3, w - 3, h - 3, true)
+    end
+    local fragMapOnEvent = function(e)
+
+    end
+    registerUI("FragMap", fragMapDraw, fragMapOnEvent)
+end
+
 local function emptyThread()
     while true do
         local e = table.pack(os.pullEvent())
@@ -172,6 +199,7 @@ end
 
 local function render()
     tlib.hideAllWin()
+    ui.color(tlib.win.main, ui.colmap.listFg, ui.colmap.listBg)
     tlib.win.main.clear()
     activeUI.render(tlib)
     tlib.win.main.setVisible(true)
@@ -194,5 +222,6 @@ end
 parallel.waitForAny(function()
     clientlib.subscribeToChanges(function(l)
         fullList = l
+        fragMap = clientlib.getFragMap()
     end)
 end, main, emptyThread)
