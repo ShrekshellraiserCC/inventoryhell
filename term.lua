@@ -5,11 +5,32 @@ local ui = require("libs.ui")
 ui.applyPallete(term)
 
 local lname = clientlib.modem.getNameLocal()
-local list = clientlib.list()
+local fullList = clientlib.list()
 
+local searchBarOnTop = false
 
 local mainWindow = window.create(term.current(), 1, 1, term.getSize())
-local listWindow = window.create(mainWindow, 1, 1, mainWindow.getSize())
+local w, h = mainWindow.getSize()
+local listWindow = window.create(mainWindow, 1, 1, w, h - 1)
+local inputWindow = window.create(mainWindow, 1, h, w, 1)
+if searchBarOnTop then
+    listWindow.reposition(1, 2, w, h - 1)
+    inputWindow.reposition(1, 1, w, 1)
+end
+---@class TermLib
+local tlib = {
+    win = {
+        main = mainWindow,
+        list = listWindow,
+        input = inputWindow
+    }
+}
+function tlib.hideAllWin()
+    for n, v in pairs(tlib.win) do
+        v.setVisible(false)
+        v.setCursorBlink(false)
+    end
+end
 
 local expectingItems = false
 local debounceTid = os.startTimer(0.2)
@@ -18,12 +39,14 @@ local debounceTid = os.startTimer(0.2)
 local lockedSlots = {}
 
 local function lockUsedSlots()
+    if not turtle then return end
     for i = 1, 16 do
         lockedSlots[i] = turtle.getItemCount(i) > 0
     end
 end
 
 local function emptyInventory()
+    if not turtle then return end
     for i = 1, 16 do
         local c = turtle.getItemCount(i)
         if not lockedSlots[i] and c > 0 then
@@ -34,27 +57,108 @@ local function emptyInventory()
     end
 end
 
-local wrap = ui.tableGuiWrapper(listWindow, {} --[[@as table<integer,CCItemInfo>]], function(v)
-    local es = ""
-    if v.enchantments then
-        for i, e in ipairs(v.enchantments) do
-            es = es .. e.displayName .. ","
+---@class RegisteredClientUI
+---@field render fun(tlib:TermLib)
+---@field onEvent fun(e:any[],tlib:TermLib):boolean
+---@field setValue fun(...)?
+
+---@type table<string,RegisteredClientUI>
+local registeredUIs = {}
+local uiList = {}
+---Register a UI screen
+---@param name string
+---@param render fun()
+---@param onEvent fun(e:any[]):boolean
+---@param setValue fun(...)?
+local function registerUI(name, render, onEvent, setValue)
+    registeredUIs[name] = {
+        render = render,
+        onEvent = onEvent,
+        setValue = setValue
+    }
+    uiList[#uiList + 1] = name
+end
+---@type RegisteredClientUI
+local activeUI
+local function setUI(name)
+    activeUI = registeredUIs[name]
+    -- make sure user inputs aren't carried to a different screen
+    os.queueEvent("event_clense")
+    os.pullEvent("event_clense")
+end
+
+do
+    local mainList = ui.tableGuiWrapper(
+        mainWindow,
+        uiList,
+        function(v)
+            return { v }
+        end,
+        { "Main Menu" },
+        function(i, v)
+            setUI(v)
         end
-        es = es:sub(1, #es - 1)
+    )
+    registerUI("main", mainList.draw, mainList.onEvent)
+    uiList[1] = nil
+    setUI("main")
+end
+
+do
+    local wrap = ui.tableGuiWrapper(listWindow, {} --[[@as table<integer,CCItemInfo>]], function(v)
+        local es = ""
+        if v.enchantments then
+            for i, e in ipairs(v.enchantments) do
+                es = es .. e.displayName .. ","
+            end
+            es = es:sub(1, #es - 1)
+        end
+        return { tostring(v.count), v.displayName, es }
+    end, { "Count", "Name", "Extra" }, function(i, v)
+        tlib.win.input.setCursorBlink(false)
+        local want = ui.getItemCount(mainWindow, v)
+        if not want then return end
+        expectingItems = true
+        clientlib.pushItems(lname, ID.fromName(v.name, v.nbt), want)
+        lockUsedSlots()
+        expectingItems = false
+    end)
+    local reread = ui.reread(tlib.win.input, 2, 1, w - 2)
+    local filteredList = {}
+    local function filter()
+        local ok, id = pcall(ID.unserialize, reread.buffer)
+        if ok then
+            filteredList = id:matchList(fullList)
+            return
+        end
+        ok, id = pcall(ID.fromPattern, reread.buffer)
+        if ok then
+            filteredList = id:matchList(fullList)
+            return
+        end
+        filteredList = fullList
     end
-    return { tostring(v.count), v.displayName, es }
-end, { "Count", "Name", "Extra" }, function(i, v)
-    local want = ui.getItemCount(mainWindow, v)
-    if not want then return end
-    expectingItems = true
-    clientlib.pushItems(lname, ID.fromName(v.name, v.nbt), want)
-    lockUsedSlots()
-    expectingItems = false
-end)
-local function render()
-    wrap.setTable(list)
-    wrap.draw()
-    clientlib.renderThrobber(term)
+    local function onEvent(e)
+        if wrap.onEvent(e) then return true end
+        return reread:onEvent(e)
+    end
+    local function mrender()
+        filter()
+        wrap.setTable(filteredList)
+        wrap.draw()
+        ui.color(tlib.win.input, ui.colmap.inputFg, ui.colmap.inputBg)
+        tlib.win.input.clear()
+        ui.cursor(tlib.win.input, 1, 1)
+        tlib.win.input.write(">")
+        reread:render()
+        clientlib.renderThrobber(term)
+        tlib.win.list.setVisible(true)
+        tlib.win.input.setVisible(true)
+    end
+
+    registerUI("Storage", mrender, onEvent, function(search)
+        reread:setValue(search)
+    end)
 end
 
 local function emptyThread()
@@ -66,20 +170,29 @@ local function emptyThread()
     end
 end
 
+local function render()
+    tlib.hideAllWin()
+    tlib.win.main.clear()
+    activeUI.render(tlib)
+    tlib.win.main.setVisible(true)
+end
+
 local function main()
     while true do
         render()
         local e = table.pack(os.pullEvent())
-        if not wrap.onEvent(e) then
+        if not activeUI.onEvent(e, tlib) then
             if e[1] == "turtle_inventory" and not expectingItems then
                 os.cancelTimer(debounceTid)
                 debounceTid = os.startTimer(0.2)
+            elseif e[1] == "key" and e[2] == keys.tab then
+                setUI("main")
             end
         end
     end
 end
 parallel.waitForAny(function()
     clientlib.subscribeToChanges(function(l)
-        list = l
+        fullList = l
     end)
 end, main, emptyThread)

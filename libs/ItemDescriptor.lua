@@ -17,12 +17,15 @@ local function matchNBT(nbt, item)
     return nbt == item.nbt or (nbt == Item.NO_NBT and item.nbt == nil) or nbt == Item.WILDCARD
 end
 
+---@type table<string,fun(self,item):boolean>
 local itemDescriptorTypes = {
     FROM_NAME = function(self, item)
         return item.name == self.name and matchNBT(self.nbt, item)
     end,
     FROM_PATTERN = function(self, item)
-        local res = self.pattern:match(item.name)
+        local res = item.name:match(self.pattern)
+            or item.displayName:match(self.pattern)
+            or item.displayName:lower():match(self.pattern)
         return not not res
     end,
     AND = function(self, item)
@@ -40,7 +43,7 @@ local itemDescriptorTypes = {
 }
 
 ---Check if a given item matches this ItemDescriptor
----@param item table
+---@param item CCItemInfo
 ---@return boolean
 function ItemDescriptor__index:match(item)
     assert(itemDescriptorTypes[self.type], ("Invalid ItemDescriptor type %s"):format(self.type))
@@ -79,6 +82,19 @@ function ItemDescriptor__index:toCoord()
     end
 end
 
+---Filter a list of items by this ItemDescriptor
+---@param l CCItemInfo[]
+---@return CCItemInfo[]
+function ItemDescriptor__index:matchList(l)
+    local nt = {}
+    for i, v in ipairs(l) do
+        if self:match(v) then
+            nt[#nt + 1] = v
+        end
+    end
+    return nt
+end
+
 ---Match items by their specific name
 ---  * NO_NBT assumed!
 ---@param name string
@@ -97,7 +113,7 @@ end
 ---@return ItemDescriptor
 function Item.fromPattern(pattern)
     expect(1, pattern, "string")
-    local ok, res = pcall(string.match, pattern, "test_1234:item_name")
+    local ok, res = pcall(string.match, "test_1234:item_name", pattern)
     if not ok then
         error(res, 1)
     end

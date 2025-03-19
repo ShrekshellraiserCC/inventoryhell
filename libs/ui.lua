@@ -63,7 +63,9 @@ local colmap = {
     listBg = colors.black,
     listFg = colors.white,
     selectedBg = colors.orange,
-    selectedFg = colors.black
+    selectedFg = colors.black,
+    inputBg = colors.lightGray,
+    inputFg = colors.black
 }
 
 ui.colmap = colmap
@@ -330,6 +332,12 @@ local function renderGetItemCount(win, item, mult, tick)
     win.setVisible(true)
 end
 
+local function clenseEvents()
+    -- make sure user inputs aren't carried to a different screen
+    os.queueEvent("event_clense")
+    os.pullEvent("event_clense")
+end
+
 ---@param win Window
 ---@param item CCItemInfo
 ---@return integer?
@@ -344,10 +352,13 @@ local function getItemCount(win, item)
         if e[1] == "key" then
             heldKeys[e[2]] = true
             if e[2] == keys.enter then
+                clenseEvents()
                 return item.maxCount
             elseif keyMultipliers[keys.getName(e[2])] then
+                clenseEvents()
                 return keyMultipliers[keys.getName(e[2])] * mult
             elseif e[2] == keys.q then
+                clenseEvents()
                 return
             end
         elseif e[1] == "key_up" then
@@ -362,5 +373,108 @@ local function getItemCount(win, item)
     end
 end
 ui.getItemCount = getItemCount
+
+---@class ResumableRead
+---@field win Window|Redirect|term
+---@field buffer string
+---@field cursor integer
+---@field x integer
+---@field x_end integer
+---@field w integer
+---@field y integer
+---@field offset integer
+local reread__index = {}
+local reread_meta = { __index = reread__index }
+
+function reread__index:_updateOffset()
+    local offset = 1
+    local hw = math.floor(self.w / 2)
+    if #self.buffer > self.w - 1 then
+        offset = math.max(math.min(self.cursor - hw + 1, #self.buffer - self.w + 2), 1)
+    end
+    self.offset = offset
+    return offset
+end
+
+function reread__index:setCursor(i)
+    self.cursor = math.max(math.min(i, #self.buffer + 1), 1)
+    self:_updateOffset()
+end
+
+function reread__index:offsetCursor(i)
+    self:setCursor(self.cursor + i)
+end
+
+function reread__index:onEvent(e)
+    if e[1] == "char" then
+        self.buffer = self.buffer:sub(1, self.cursor - 1) .. e[2]
+            .. self.buffer:sub(self.cursor)
+        self:offsetCursor(1)
+        return true
+    elseif e[1] == "key" then
+        if e[2] == keys.backspace and self.cursor > 1 then
+            self.buffer = self.buffer:sub(1, self.cursor - 2) .. self.buffer:sub(self.cursor)
+            self:offsetCursor(-1)
+            return true
+        elseif e[2] == keys.delete then
+            self.buffer = self.buffer:sub(1, self.cursor - 1) .. self.buffer:sub(self.cursor + 1)
+            self:offsetCursor(0)
+            return true
+        elseif e[2] == keys.left then
+            self:offsetCursor(-1)
+            return true
+        elseif e[2] == keys.right then
+            self:offsetCursor(1)
+            return true
+        elseif e[2] == keys.leftCtrl then
+            self.controlHeld = true
+        elseif e[2] == keys.u and self.controlHeld then
+            self:setValue("")
+        end
+    elseif e[1] == "key_up" and e[2] == keys.leftCtrl then
+        self.controlHeld = false
+        return true
+    elseif e[1] == "paste" then
+        self.buffer = self.buffer:sub(1, self.cursor - 1) .. e[2]
+            .. self.buffer:sub(self.cursor)
+        self:offsetCursor(#e[2])
+        return true
+    end
+end
+
+function reread__index:render()
+    self.win.setCursorPos(self.x, self.y)
+    local blank = (" "):rep(self.w)
+    self.win.write(blank)
+    self.win.setCursorPos(self.x, self.y)
+    self.win.write(self.buffer:sub(self.offset))
+    self.win.setCursorPos(self.x + self.cursor - self.offset, self.y)
+    self.win.setCursorBlink(true)
+end
+
+function reread__index:setValue(s)
+    self.buffer = s
+    self:setCursor(#s)
+end
+
+---@param win Window|term
+---@param x integer
+---@param y integer
+---@param w integer?
+---@return ResumableRead
+local function reread(win, x, y, w)
+    ---@class ResumableRead
+    local r = setmetatable({}, reread_meta)
+    r.win = win
+    r.buffer = ""
+    r.cursor = 1
+    r.x, r.y = x, y
+    r.x_end = w and x + w or win.getSize() - x
+    r.w = r.x_end - r.x + 1
+    r.offset = 1
+
+    return r
+end
+ui.reread = reread
 
 return ui
