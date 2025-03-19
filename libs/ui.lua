@@ -76,7 +76,7 @@ ui.colmap = colmap
 ---@param tick integer
 local function scrollingText(s, w, tick)
     if #s > w then
-        local first = (tick - 1) % (#s + 2) + 1
+        local first = tick % (#s + 2) + 1
         local last = first + w
         if last > #s then
             s = s .. " - " .. s
@@ -165,7 +165,7 @@ local function drawTable(win, t, selected, start, getStr, columns, tick, minWidt
         end
         for j = 1, columnCount do
             win.setCursorPos(x, i - start + 2)
-            local colStr = scrollingText(s[i][j], colWidths[j], 1)
+            local colStr = scrollingText(s[i][j], colWidths[j], 0)
             if i == selected then
                 colStr = scrollingText(s[i][j], colWidths[j], tick)
             end
@@ -212,6 +212,12 @@ local function tableGuiWrapper(win, t, getStr, columns, onSelect, minWidth, unlo
     end
 
     local tid = os.startTimer(scrollDelay)
+    function wrapper.restartTicker()
+        tick = 0
+        os.cancelTimer(tid)
+        tid = os.startTimer(scrollDelay)
+    end
+
     function wrapper.onEvent(e)
         if e[1] == "key" then
             local key = e[2]
@@ -219,17 +225,13 @@ local function tableGuiWrapper(win, t, getStr, columns, onSelect, minWidth, unlo
                 selected = selected + 1
                 lastInteract = "key"
                 wrapBounds()
-                tick = 0
-                os.cancelTimer(tid)
-                tid = os.startTimer(scrollDelay)
+                wrapper.restartTicker()
                 return true
             elseif key == keys.up then
                 selected = selected - 1
                 lastInteract = "key"
                 wrapBounds()
-                tick = 0
-                os.cancelTimer(tid)
-                tid = os.startTimer(scrollDelay)
+                wrapper.restartTicker()
                 return true
             elseif key == keys.enter then
                 wrapBounds()
@@ -243,10 +245,8 @@ local function tableGuiWrapper(win, t, getStr, columns, onSelect, minWidth, unlo
                 selected = selected + e[2]
             end
             lastInteract = "scroll"
-            os.cancelTimer(tid)
-            tid = os.startTimer(scrollDelay)
             wrapBounds()
-            tick = 0
+            wrapper.restartTicker()
             return true
         elseif e[1] == "timer" and e[2] == tid then
             tick = tick + 1
@@ -399,10 +399,12 @@ end
 function reread__index:setCursor(i)
     self.cursor = math.max(math.min(i, #self.buffer + 1), 1)
     self:_updateOffset()
+    return self
 end
 
 function reread__index:offsetCursor(i)
     self:setCursor(self.cursor + i)
+    return self
 end
 
 function reread__index:onEvent(e)
@@ -454,7 +456,22 @@ end
 
 function reread__index:setValue(s)
     self.buffer = s
-    self:setCursor(#s)
+    self:setCursor(#s + 1)
+    return self
+end
+
+function reread__index:run(allowCancel)
+    while true do
+        self:render()
+        local e = { os.pullEvent() }
+        if not self:onEvent(e) then
+            if e[1] == "key" and e[2] == keys.enter then
+                return self.buffer
+            elseif e[1] == "key" and self.controlHeld and e[2] == keys.c and allowCancel then
+                return
+            end
+        end
+    end
 end
 
 ---@param win Window|term
@@ -486,7 +503,7 @@ local nonStackColor = colors.red
 ---@param idxLut number[]?
 ---@param sy integer
 ---@param w integer
-local function drawList(box, usage, idxLut, sy, w)
+local function drawFragMapList(box, usage, idxLut, sy, w)
     local lasty = 0
     for i, v in ipairs(idxLut or usage) do
         local percent = v
@@ -532,7 +549,7 @@ function ui.drawFragMap(pwin, usage, sx, sy, w, h, labels)
         for inv, idxLut in pairs(usage.invs) do
             invList[#invList + 1] = inv
             invStart[inv] = y
-            y = drawList(box, usage, idxLut, y + 1, w) + 1
+            y = drawFragMapList(box, usage, idxLut, y + 1, w) + 1
         end
         box:render()
         ui.color(win, ui.colmap.listFg, ui.colmap.listBg)
@@ -542,9 +559,80 @@ function ui.drawFragMap(pwin, usage, sx, sy, w, h, labels)
             win.write(inv)
         end
     else
-        drawList(box, usage, nil, 1, w)
+        drawFragMapList(box, usage, nil, 1, w)
         box:render()
     end
+end
+
+---Show a screen to modify a setting
+---@param win Window
+---@param s RegisteredSetting
+function ui.changeSetting(win, s)
+    local w, h = win.getSize()
+    local sset = require("libs.sset")
+    local tick = 0
+    local function render()
+        win.setVisible(false)
+        ui.color(win, ui.colmap.listFg, ui.colmap.listBg)
+        win.clear()
+        ui.cursor(win, 2, 3)
+        win.write(s.name)
+        local y = 4
+        local function writeField(s, d)
+            ui.cursor(win, 3, y)
+            y = y + 1
+            win.write(s)
+            win.write(scrollingText(tostring(d), w - 3 - #s, tick))
+        end
+        writeField("Type: ", s.type)
+        if s.lvalue ~= nil then
+            writeField("Local: ", s.lvalue)
+        end
+        if s.gvalue ~= nil then
+            writeField("Global: ", s.gvalue)
+        end
+
+        if s.default ~= nil then
+            writeField("Default: ", s.default)
+        end
+        if s.requiresReboot then
+            ui.cursor(win, 3, y)
+            y = y + 1
+            win.write("Reboot Required")
+        end
+        local split = require("cc.strings").wrap(s.desc, w - 2)
+        for i, v in ipairs(split) do
+            ui.cursor(win, 2, y)
+            y = y + 1
+            win.write(v)
+        end
+        ui.color(win, ui.colmap.headerFg, ui.colmap.headerBg)
+        ui.cursor(win, 1, 1)
+        win.clearLine()
+        win.write("Modifying Setting")
+        ui.color(win, ui.colmap.inputFg, ui.colmap.inputBg)
+        ui.cursor(win, 1, h)
+        win.clearLine()
+        ui.color(win, ui.colmap.selectedFg, ui.colmap.selectedBg)
+        win.write("\27^C")
+        ui.color(win, ui.colmap.inputFg, ui.colmap.inputBg)
+        win.write(">")
+        win.setVisible(true)
+    end
+    render()
+    local cvalue = sset.get(s, true)
+    if cvalue == nil then cvalue = "" else cvalue = tostring(cvalue) end
+    local value = reread(win, 5, h, w - 5):setValue(cvalue):run(true)
+    if value ~= nil then
+        if value == "" then
+            value = nil
+        end
+        sset.set(s, value)
+        if s.requiresReboot then
+            -- os.reboot()
+        end
+    end
+    ui.color(win, ui.colmap.listFg, ui.colmap.listBg)
 end
 
 return ui

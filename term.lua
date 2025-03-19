@@ -1,5 +1,6 @@
 local clientlib = require("libs.clientlib")
 local ID = require("libs.ItemDescriptor")
+local sset = require("libs.sset")
 clientlib.open()
 local ui = require("libs.ui")
 ui.applyPallete(term)
@@ -7,14 +8,11 @@ ui.applyPallete(term)
 local lname = clientlib.modem.getNameLocal()
 local fullList = clientlib.list()
 
-local searchBarOnTop = false
-local displayExtra = false
-
 local mainWindow = window.create(term.current(), 1, 1, term.getSize())
 local w, h = mainWindow.getSize()
 local listWindow = window.create(mainWindow, 1, 1, w, h - 1)
 local inputWindow = window.create(mainWindow, 1, h, w, 1)
-if searchBarOnTop then
+if sset.get(sset.searchBarOnTop) then
     listWindow.reposition(1, 2, w, h - 1)
     inputWindow.reposition(1, 1, w, 1)
 end
@@ -113,7 +111,7 @@ end
 
 do
     local columns = { "Count", "Name" }
-    if not displayExtra then
+    if not sset.get(sset.hideExtra) then
         columns[#columns + 1] = "Extra"
     end
     local wrap = ui.tableGuiWrapper(listWindow, {} --[[@as table<integer,CCItemInfo>]], function(v)
@@ -169,7 +167,7 @@ do
 
     registerUI("Storage", mrender, onEvent, function(search)
         reread:setValue(search)
-    end)
+    end, wrap.restartTicker)
 end
 
 local fragMap = clientlib.getFragMap()
@@ -186,6 +184,31 @@ do
 
     end
     registerUI("FragMap", fragMapDraw, fragMapOnEvent)
+end
+
+do
+    local wrap    = ui.tableGuiWrapper(
+        tlib.win.main, sset.settingList,
+        function(v)
+            local name = v.device .. ":" .. v.name
+            local value = sset.get(v)
+            if value ~= nil and value == v.default then
+                value = tostring(value) .. "*"
+            else
+                value = tostring(value)
+            end
+            return { name, value, v.desc }
+        end, { "Name", "Value", "Description" }, function(i, v)
+            ui.changeSetting(tlib.win.main, v)
+        end
+    )
+    local draw    = function()
+        wrap.draw()
+    end
+    local onEvent = function(e)
+        wrap.onEvent(e)
+    end
+    registerUI("Settings", draw, onEvent, nil, wrap.restartTicker)
 end
 
 local function emptyThread()
