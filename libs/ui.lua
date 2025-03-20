@@ -110,10 +110,11 @@ end
 ---@param getStr fun(v:T):string[]
 ---@param columns string[]
 ---@param tick integer
----@param minWidth table<integer,number>?
+---@param lockWidth table<integer,boolean>?
+---@param align table<integer,"r">
 ---@return integer start
-local function drawTable(win, t, selected, start, getStr, columns, tick, minWidth)
-    minWidth = minWidth or {}
+local function drawTable(win, t, selected, start, getStr, columns, tick, lockWidth, align)
+    lockWidth = lockWidth or {}
     local w, h = win.getSize()
     w = w - 1
     h = h - 1
@@ -143,19 +144,30 @@ local function drawTable(win, t, selected, start, getStr, columns, tick, minWidt
     local totalAllocatedWidth = 0
     for j = 1, columnCount do
         -- Allow a configurable minimum width for each column
-        colWidths[j] = math.min(
-            math.max(math.floor(w * maxima[j] / totalStringWidth) + 1, minWidth[j] or 0),
-            maxColumnWidth)
+        colWidths[j] = math.min(math.floor(w * maxima[j] / totalStringWidth) + 1, maxColumnWidth)
+        if lockWidth[j] then
+            colWidths[j] = maxima[j] + 1
+        end
         totalAllocatedWidth = totalAllocatedWidth + colWidths[j]
     end
     local remaining = w - totalAllocatedWidth
-    local split = math.floor(remaining / columnCount)
-    for j = 1, columnCount do
-        colWidths[j] = colWidths[j] + split
-        remaining = remaining - split
-        totalAllocatedWidth = totalAllocatedWidth + split
-        split = math.min(remaining, split)
-        if split == 0 then break end
+    local iter = 1
+    while remaining > 0 do
+        local split = math.ceil(remaining / columnCount)
+        for j = 1, columnCount do
+            colWidths[j] = colWidths[j] + split
+            local splitted = split
+            if lockWidth[j] then
+                colWidths[j] = maxima[j] + 1
+                splitted = 0
+            end
+            remaining = remaining - splitted
+            totalAllocatedWidth = totalAllocatedWidth + splitted
+            split = math.min(remaining, split)
+            if split == 0 then break end
+        end
+        iter = iter + 1
+        if iter == 5 then break end
     end
     -- Give left over space to last column
     colWidths[columnCount] = colWidths[columnCount] + w - totalAllocatedWidth
@@ -180,11 +192,15 @@ local function drawTable(win, t, selected, start, getStr, columns, tick, minWidt
             win.clearLine()
         end
         for j = 1, columnCount do
-            win.setCursorPos(x, i - start + 2)
             local colStr = scrollingText(s[i][j], colWidths[j], 0)
             if i == selected then
                 colStr = scrollingText(s[i][j], colWidths[j], tick)
             end
+            local tx = x
+            if align[j] == "r" then
+                tx = tx + colWidths[j] - #colStr - 1
+            end
+            win.setCursorPos(tx, i - start + 2)
             win.write(colStr)
             x = x + colWidths[j]
         end
@@ -209,12 +225,14 @@ ui.drawTable = drawTable
 ---@param getStr fun(v:T):string[]
 ---@param columns string[]
 ---@param onSelect fun(i:integer,v:T)
----@param minWidth table<integer,number>?
+---@param lockWidth table<integer,boolean>?
 ---@param unlockMouse boolean?
-local function tableGuiWrapper(win, t, getStr, columns, onSelect, minWidth, unlockMouse)
+---@param align table<integer,"r">?
+local function tableGuiWrapper(win, t, getStr, columns, onSelect, lockWidth, unlockMouse, align)
     local selected = 1
     local start = 1
     local tick = 0
+    align = align or {}
     ---@type "key"|"scroll"
     local lastInteract = "key"
     local function wrapBounds()
@@ -280,7 +298,7 @@ local function tableGuiWrapper(win, t, getStr, columns, onSelect, minWidth, unlo
         if lastInteract == "scroll" and unlockMouse then
             b = start
         end
-        start = drawTable(win, t, selected, b, getStr, columns, tick, minWidth)
+        start = drawTable(win, t, selected, b, getStr, columns, tick, lockWidth, align)
         win.setVisible(true)
     end
 

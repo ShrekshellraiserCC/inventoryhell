@@ -131,7 +131,7 @@ do
         clientlib.pushItems(lname, ID.fromName(v.name, v.nbt), want)
         lockUsedSlots()
         expectingItems = false
-    end)
+    end, { true }, nil, { "r" })
     local reread = ui.reread(tlib.win.input, 2, 1, w - 2)
     local filteredList = {}
     ---@type "ID"|"Pattern"|"Invalid"
