@@ -28,6 +28,12 @@ function ui.applyPallete(dev)
     end
 end
 
+ui.icons = {
+    up = "\30",
+    down = "\31",
+    back = "\27"
+}
+
 ---Set the colors of a device
 ---@param dev Window|term
 ---@param fg color?
@@ -43,6 +49,16 @@ function ui.color(dev, fg, bg)
         dev.setBackgroundColor(bg)
     end
     return ofg, obg
+end
+
+---Draw a header at the top of the window
+---@param win Window
+---@param s string
+function ui.header(win, s)
+    ui.color(win, ui.colmap.headerFg, ui.colmap.headerBg)
+    ui.cursor(win, 1, 1)
+    win.clearLine()
+    win.write(s)
 end
 
 ---Set the cursor position on a device
@@ -177,11 +193,11 @@ local function drawTable(win, t, selected, start, getStr, columns, tick, minWidt
     end
     if start > 1 then
         win.setCursorPos(w + 1, 2)
-        win.write("\30")
+        win.write(ui.icons.up)
     end
     if stop < #t then
         win.setCursorPos(w + 1, h + 1)
-        win.write("\31")
+        win.write(ui.icons.down)
     end
     return start
 end
@@ -323,7 +339,7 @@ local function renderGetItemCount(win, item, mult, tick)
     win.setCursorPos(1, h)
     win.clearLine()
     local x = 4
-    win.write("\27Q")
+    win.write(ui.icons.back .. "Q")
     for i, v in ipairs(order) do
         win.setCursorPos(x, h)
         win.write(("[%s %3d]"):format(v:upper(), mult * keyMultipliers[v]))
@@ -505,7 +521,9 @@ local nonStackColor = colors.red
 ---@param idxLut number[]?
 ---@param sy integer
 ---@param w integer
-local function drawFragMapList(box, usage, idxLut, sy, w)
+---@param scroll integer
+---@return integer height
+local function drawFragMapList(box, usage, idxLut, sy, w, scroll)
     local lasty = 0
     for i, v in ipairs(idxLut or usage) do
         local percent = v
@@ -515,7 +533,7 @@ local function drawFragMapList(box, usage, idxLut, sy, w)
             idx = v
         end
         local x = (i - 1) % w + 1
-        local y = math.floor((i - 1) / w) + math.floor(sy * 1.5)
+        local y = math.floor((i - 1) / w) + math.floor(sy * 1.5) - scroll
         local color = partColor
         if percent == 1 then
             color = fullColor
@@ -526,9 +544,12 @@ local function drawFragMapList(box, usage, idxLut, sy, w)
             color = nonStackColor
         end
         lasty = math.ceil(y / 1.5)
-        box:set_pixel(x, y, color)
+        -- lasty = y
+        if y >= sy then
+            box:set_pixel(x, y, color)
+        end
     end
-    return lasty
+    return lasty - sy + scroll + 1
 end
 ---Draw a FragMap
 ---@param pwin Window
@@ -538,20 +559,25 @@ end
 ---@param w integer
 ---@param h integer
 ---@param labels boolean Show slot usage by inventory
-function ui.drawFragMap(pwin, usage, sx, sy, w, h, labels)
+---@param scroll integer? 0 indexed scroll start
+function ui.drawFragMap(pwin, usage, sx, sy, w, h, labels, scroll)
     local bixelbox = require("libs.bixelbox")
     local win = window.create(pwin, sx, sy, w, h, true)
     local box = bixelbox.new(win, colors.black)
+    scroll = scroll or 0
     win.setBackgroundColor(colors.black)
     box:clear(colors.black)
+    local fh = 0
     if labels then
-        local y = 1
+        local y = 1 - scroll
         local invStart = {}
         local invList = {}
         for inv, idxLut in pairs(usage.invs) do
             invList[#invList + 1] = inv
             invStart[inv] = y
-            y = drawFragMapList(box, usage, idxLut, y + 1, w) + 1
+            local lh = drawFragMapList(box, usage, idxLut, y + 1, w, 0) + 1
+            y = y + lh
+            fh = fh + lh
         end
         box:render()
         ui.color(win, ui.colmap.listFg, ui.colmap.listBg)
@@ -561,9 +587,10 @@ function ui.drawFragMap(pwin, usage, sx, sy, w, h, labels)
             win.write(inv)
         end
     else
-        drawFragMapList(box, usage, nil, 1, w)
+        fh = drawFragMapList(box, usage, nil, 1, w, scroll)
         box:render()
     end
+    return fh
 end
 
 ---Show a screen to modify a setting
@@ -616,7 +643,7 @@ function ui.changeSetting(win, s)
         ui.cursor(win, 1, h)
         win.clearLine()
         ui.color(win, ui.colmap.selectedFg, ui.colmap.selectedBg)
-        win.write("\27^C")
+        win.write(ui.icons.back .. "^C")
         ui.color(win, ui.colmap.inputFg, ui.colmap.inputBg)
         win.write(">")
         win.setVisible(true)

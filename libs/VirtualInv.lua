@@ -840,14 +840,6 @@ end
 ---Get a table of each slots usage expressed as a percentage [0,1]. Non-stackable items have a value of 2.
 ---@return FragMap
 function VirtualInv__index:getFragMap()
-    table.sort(self.realSlotList, function(a, b)
-        local inv1, slot1 = coordLib.splitInventoryCoordinate(a)
-        local inv2, slot2 = coordLib.splitInventoryCoordinate(b)
-        if inv1 == inv2 then
-            return slot1 < slot2
-        end
-        return inv1 < inv2
-    end)
     ---@type FragMap
     local usage = {
         nostack = {},

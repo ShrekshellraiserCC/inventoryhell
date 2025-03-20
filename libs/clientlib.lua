@@ -1,9 +1,11 @@
 local ui = require "libs.ui"
+local sset = require "libs.sset"
 local clientlib = {}
 
 clientlib.protocol = "SHREKSTORAGE"
 
 local hid, modem
+hid = sset.get(sset.hid)
 
 local throbberStates = { "\129", "\130", "\132", "\136" }
 local ackThrobberStates = { "\x85", "\x83", "\x8a", "\x8c" }
@@ -34,13 +36,21 @@ function clientlib.renderThrobber(win)
     ui.cursor(win, ox, oy)
 end
 
+local throbberTick = 0
+local throbberInterval = 0.3
+local function tickThrobber()
+    while true do
+        sleep(throbberInterval)
+        throbberTick = throbberTick + 1
+    end
+end
 local function sendAndRecieve(msg)
     rednet.send(hid, msg, clientlib.protocol)
-    local i = 0
+    local tries = 0
     local r = 0
     local gotAck = false
     while true do
-        showThrobber(i, gotAck)
+        showThrobber(throbberTick, gotAck)
         local sender, response = rednet.receive(clientlib.protocol, 0.2)
         if sender == hid and type(response) == "table" and response.side == "server" then
             if response.type == msg.type then
@@ -50,11 +60,11 @@ local function sendAndRecieve(msg)
                 gotAck = true
             end
         elseif sender == nil then
-            i = i + 1
+            tries = tries + 1
         end
-        if i > maxTimeouts and not gotAck then
+        if tries > maxTimeouts and not gotAck then
             r = r + 1
-            i = 0
+            tries = 0
             rednet.send(hid, msg, clientlib.protocol)
         end
     end
@@ -118,12 +128,18 @@ function clientlib.open()
     ui.color(term, ui.colmap.headerFg, ui.colmap.headerBg)
     term.clearLine()
     term.write("Searching for Storage")
-    while not hid do
-        showThrobber(i)
-        hid = rednet.lookup(clientlib.protocol)
-        -- hid = 0
-        i = i + 1
-    end
+    parallel.waitForAny(function()
+        while not hid do
+            hid = rednet.lookup(clientlib.protocol)
+            -- hid = 0
+        end
+    end, function()
+        while true do
+            throbberTick = throbberTick + 1
+            showThrobber(throbberTick)
+            sleep(throbberInterval)
+        end
+    end)
     ui.color(term, ui.colmap.headerFg, ui.colmap.headerBg)
     term.setCursorPos(1, 1)
     term.clearLine()
@@ -144,5 +160,8 @@ end
 function clientlib.close()
     modem.closeAll()
 end
+
+---Update the throbber animation state
+clientlib.run = tickThrobber
 
 return clientlib

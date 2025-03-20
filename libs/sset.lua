@@ -141,6 +141,8 @@ sset.isCrafter = setting("boot", "isCrafter", "Is this device a crafter?", "bool
 sset.searchBarOnTop = setting("term", "searchBarOnTop", "Search Bar on Top", "boolean", false, true)
 sset.hideExtra = setting("term", "hideExtra", "Hide NBT and other data", "boolean", true, true)
 
+sset.hid = setting("boot", "hid", "Storage Host ID", "number")
+
 loadSettings()
 
 return sset
