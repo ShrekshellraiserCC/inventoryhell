@@ -42,6 +42,9 @@ local function saveSettings()
 end
 
 local function readFromFile(fn)
+    if not fs.exists(fn) then
+        return
+    end
     local f = assert(fs.open(fn, "r"))
     local s = f.readAll()
     f.close()
@@ -49,8 +52,8 @@ local function readFromFile(fn)
 end
 
 local function loadSettings()
-    local gsettings = textutils.unserialize(readFromFile(gsettingFn))
-    local lsettings = textutils.unserialize(readFromFile(lsettingFn))
+    local gsettings = textutils.unserialize(readFromFile(gsettingFn) or "{}")
+    local lsettings = textutils.unserialize(readFromFile(lsettingFn) or "{}")
     for k, v in pairs(gsettings) do
         sset.set(k, v)
     end

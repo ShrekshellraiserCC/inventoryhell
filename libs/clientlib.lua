@@ -131,12 +131,12 @@ function clientlib.open()
     ui.color(term, ofg, obg)
 end
 
----@param f fun(l:CCItemInfo[])
+---@param f fun(l:CCItemInfo[],fragMap:FragMap)
 function clientlib.subscribeToChanges(f)
     while true do
         local sender, msg = rednet.receive(clientlib.protocol)
         if sender == hid and type(msg) == "table" and msg.type == "inventoryChange" then
-            f(msg.list)
+            f(msg.list, msg.fragMap)
         end
     end
 end

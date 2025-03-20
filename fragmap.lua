@@ -14,7 +14,7 @@ local function render()
     ui.drawFragMap(win, usage, 2, 2, mw - 2, mh - 2, false)
 end
 render()
-clientlib.subscribeToChanges(function(l)
-    usage = clientlib.getFragMap()
+clientlib.subscribeToChanges(function(l, fm)
+    usage = fm
     render()
 end)

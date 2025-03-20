@@ -71,7 +71,8 @@ end
 local function onChanged(self)
     rednet.broadcast({
         type = "inventoryChange",
-        list = self:list()
+        list = self:list(),
+        fragMap = self:getFragMap()
     }, protocol)
 end
 inv.reserve:setChangedCallback(onChanged)
@@ -114,7 +115,5 @@ end
 
 local hostTask = stl.Task.new(f, "Host")
 inv.scheduler.queueTask(hostTask)
-
-inv.reserve:dump("test.txt")
 
 inv.run()

@@ -235,7 +235,9 @@ local function tableGuiWrapper(win, t, getStr, columns, onSelect, minWidth, unlo
                 return true
             elseif key == keys.enter then
                 wrapBounds()
-                onSelect(selected, t[selected])
+                if t[selected] then
+                    onSelect(selected, t[selected])
+                end
                 return true
             end
         elseif e[1] == "mouse_scroll" then

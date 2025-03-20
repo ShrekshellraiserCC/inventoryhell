@@ -123,7 +123,7 @@ do
             es = es:sub(1, #es - 1)
         end
         return { tostring(v.count), v.displayName, es }
-    end, { "Count", "Name" }, function(i, v)
+    end, columns, function(i, v)
         tlib.win.input.setCursorBlink(false)
         local want = ui.getItemCount(mainWindow, v)
         if not want then return end
@@ -134,17 +134,22 @@ do
     end)
     local reread = ui.reread(tlib.win.input, 2, 1, w - 2)
     local filteredList = {}
+    ---@type "ID"|"Pattern"|"Invalid"
+    local parseStatus = "ID"
     local function filter()
         local ok, id = pcall(ID.unserialize, reread.buffer)
         if ok then
             filteredList = id:matchList(fullList)
+            parseStatus = "ID"
             return
         end
         ok, id = pcall(ID.fromPattern, reread.buffer)
-        if ok then
+        if ok and id then
             filteredList = id:matchList(fullList)
+            parseStatus = "Pattern"
             return
         end
+        parseStatus = "Invalid"
         filteredList = fullList
     end
     local function onEvent(e)
@@ -157,10 +162,15 @@ do
         wrap.draw()
         ui.color(tlib.win.input, ui.colmap.inputFg, ui.colmap.inputBg)
         tlib.win.input.clear()
+        if parseStatus == "ID" then
+            ui.color(tlib.win.input, colors.green)
+        elseif parseStatus == "Invalid" then
+            ui.color(tlib.win.input, colors.red)
+        end
         ui.cursor(tlib.win.input, 1, 1)
         tlib.win.input.write(">")
+        ui.color(tlib.win.input, ui.colmap.inputFg, ui.colmap.inputBg)
         reread:render()
-        clientlib.renderThrobber(term)
         tlib.win.list.setVisible(true)
         tlib.win.input.setVisible(true)
     end
@@ -177,7 +187,6 @@ do
         ui.cursor(tlib.win.main, 1, 1)
         tlib.win.main.clearLine()
         tlib.win.main.write("FragMap View")
-        clientlib.renderThrobber(tlib.win.main)
         ui.drawFragMap(tlib.win.main, fragMap, 2, 3, w - 3, h - 3, true)
     end
     local fragMapOnEvent = function(e)
@@ -225,6 +234,7 @@ local function render()
     ui.color(tlib.win.main, ui.colmap.listFg, ui.colmap.listBg)
     tlib.win.main.clear()
     activeUI.render(tlib)
+    clientlib.renderThrobber(tlib.win.main)
     tlib.win.main.setVisible(true)
 end
 
@@ -243,8 +253,8 @@ local function main()
     end
 end
 parallel.waitForAny(function()
-    clientlib.subscribeToChanges(function(l)
+    clientlib.subscribeToChanges(function(l, fm)
         fullList = l
-        fragMap = clientlib.getFragMap()
+        fragMap = fm
     end)
 end, main, emptyThread)

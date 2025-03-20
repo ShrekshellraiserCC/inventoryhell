@@ -113,7 +113,8 @@ end
 ---@return ItemDescriptor
 function Item.fromPattern(pattern)
     expect(1, pattern, "string")
-    local ok, res = pcall(string.match, "test_1234:item_name", pattern)
+    -- "abcdefghijklmopqrstuvwxyz_123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    local ok, res = pcall(string.match, pattern, pattern)
     if not ok then
         error(res, 1)
     end
@@ -168,6 +169,9 @@ end
 local function splitAndGetOperator(s)
     local level = 0
     local splitIdx, op
+    if s:sub(1, 1) ~= "(" or s:sub(#s, #s) ~= ")" then
+        return
+    end
     for i = 1, #s do
         local ch = s:sub(i, i)
         if ch == "(" then
