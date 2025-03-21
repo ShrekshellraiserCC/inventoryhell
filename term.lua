@@ -287,4 +287,4 @@ parallel.waitForAny(function()
         fullList = l
         fragMap = fm
     end)
-end, main, emptyThread, clientlib.run)
+end, main, emptyThread, clientlib.run, sset.checkForChangesThread)

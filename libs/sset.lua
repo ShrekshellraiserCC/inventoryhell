@@ -10,14 +10,16 @@ local sset = {}
 ---@field name string
 ---@field device string
 ---@field requiresReboot boolean?
----@field hasGlobal boolean?
+---@field side "global"|"local"|"both"
 
 ---@type table<string,RegisteredSetting>
 sset.registeredSettings = {}
 ---@type RegisteredSetting[]
 sset.settingList = {}
 
+local lsettingLoadTime = os.epoch("utc")
 local lsettingFn = "shreksettings.txt"
+local gsettingLoadTime = os.epoch("utc")
 local gsettingFn = "disk/shreksettings_g.txt"
 
 local function writeToFile(fn, t)
@@ -101,12 +103,42 @@ function sset.set(name, value, loc)
         svalue = value:lower() == "true" or value:lower() == "t"
     end
     if svalue ~= placeholder then
-        if loc or not s.hasGlobal then
+        if (s.side == "both" or s.side == "local")
+            and (loc or not s.side == "both") then
             s.lvalue = svalue
         else
             s.gvalue = svalue
         end
         saveSettings()
+    end
+end
+
+---@param attr fileAttributes
+local function hasUpdated(attr, last)
+    return attr.modified > last
+end
+
+---Checks the config files to see if they have been modified since last loaded
+---If so, reload them
+function sset.checkForChanges()
+    local hasChanged
+    if fs.exists(lsettingFn) then
+        local lattr = fs.attributes(lsettingFn)
+        hasChanged = hasUpdated(lattr, lsettingLoadTime)
+    end
+    if fs.exists(gsettingFn) then
+        local gattr = fs.attributes(gsettingFn)
+        hasChanged = hasChanged or hasUpdated(gattr, gsettingLoadTime)
+    end
+    if hasChanged then
+        loadSettings()
+    end
+end
+
+function sset.checkForChangesThread()
+    while true do
+        sleep(sset.get(sset.settingChangeCheckInterval))
+        sset.checkForChanges()
     end
 end
 
@@ -117,9 +149,9 @@ end
 ---@param dType type
 ---@param default any
 ---@param requiresReboot boolean?
----@param hasGlobal boolean?
-local function setting(device, name, desc, dType, default, requiresReboot, hasGlobal)
-    if hasGlobal == nil then hasGlobal = true end
+---@param side "global"|"local"|"both"?
+local function setting(device, name, desc, dType, default, requiresReboot, side)
+    if side == nil then side = "both" end
     ---@type RegisteredSetting
     local s = {
         desc = desc,
@@ -128,20 +160,27 @@ local function setting(device, name, desc, dType, default, requiresReboot, hasGl
         name = name,
         device = device,
         requiresReboot = requiresReboot,
-        hasGlobal = hasGlobal
+        side = side
     }
     sset.registeredSettings[device .. ":" .. name] = s
     sset.settingList[#sset.settingList + 1] = s
     return s
 end
 
-sset.isTerm = setting("boot", "isTerm", "Is this device a terminal?", "boolean", not not turtle, true, false)
-sset.isCrafter = setting("boot", "isCrafter", "Is this device a crafter?", "boolean", not not turtle, true, false)
+sset.isTerm = setting("boot", "isTerm", "Is this device a terminal?", "boolean", not not turtle, true, "local")
+sset.isCrafter = setting("boot", "isCrafter", "Is this device a crafter?", "boolean", not not turtle, true, "local")
+sset.isHost = setting("boot", "isHost", "Is this device the storage system host?", "boolean", false, true, "local")
 
 sset.searchBarOnTop = setting("term", "searchBarOnTop", "Search Bar on Top", "boolean", false, true)
 sset.hideExtra = setting("term", "hideExtra", "Hide NBT and other data", "boolean", true, true)
 
 sset.hid = setting("boot", "hid", "Storage Host ID", "number")
+
+sset.settingChangeCheckInterval = setting("sset", "settingChangeCheckInterval",
+    "Delay between checking whether the config files have been updated.", "number", 5, nil, "global")
+
+sset.changeBroadcastInterval = setting("host", "changeBroadcastInterval",
+    "Delay between inventory update packets are broadcast.", "number", 0.2, nil, "global")
 
 loadSettings()
 

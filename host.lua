@@ -1,6 +1,7 @@
 local acl = require("libs.ACL")
 local ID = require("libs.ItemDescriptor")
 local stl = require("libs.STL")
+local sset = require("libs.sset")
 
 local protocol = require("libs.clientlib").protocol
 local hostname = "HOST_TEST"
@@ -68,12 +69,17 @@ local function parseMessage(msg)
     end
 end
 
-local function onChanged(self)
+local inventoryDirty = false
+local function broadcastChange()
     rednet.broadcast({
         type = "inventoryChange",
-        list = self:list(),
-        fragMap = self:getFragMap()
+        list = inv.reserve:list(),
+        fragMap = inv.reserve:getFragMap()
     }, protocol)
+end
+
+local function onChanged(self)
+    inventoryDirty = true
 end
 inv.reserve:setChangedCallback(onChanged)
 onChanged(inv.reserve)
@@ -97,7 +103,7 @@ local function processMessageThread()
     end
 end
 
-local f = { function()
+local function receieveMessageThread()
     while true do
         local sender, message, prot = rednet.receive(protocol)
         if type(message) == "table" then
@@ -107,7 +113,19 @@ local f = { function()
             rednet.send(sender, { type = "ACK", ftype = message.type, side = "server" }, protocol)
         end
     end
-end }
+end
+
+local function inventoryChangeThread()
+    while true do
+        sleep(sset.get(sset.changeBroadcastInterval))
+        if inventoryDirty then
+            inventoryDirty = false
+            broadcastChange()
+        end
+    end
+end
+
+local f = { receieveMessageThread, inventoryChangeThread, sset.checkForChangesThread }
 
 for i = 1, 1 do
     f[#f + 1] = processMessageThread
