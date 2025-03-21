@@ -6,7 +6,6 @@ local ui = require("libs.ui")
 ui.applyPallete(term)
 
 local lname = clientlib.modem.getNameLocal()
-local fullList = clientlib.list()
 
 local mainWindow = window.create(term.current(), 1, 1, term.getSize())
 local w, h = mainWindow.getSize()
@@ -24,6 +23,7 @@ local tlib = {
         input = inputWindow
     }
 }
+tlib.fullList = clientlib.list()
 function tlib.hideAllWin()
     for n, v in pairs(tlib.win) do
         v.setVisible(false)
@@ -142,18 +142,18 @@ do
     local function filter()
         local ok, id = pcall(ID.unserialize, reread.buffer)
         if ok then
-            filteredList = id:matchList(fullList)
+            filteredList = id:matchList(tlib.fullList)
             parseStatus = "ID"
             return
         end
         ok, id = pcall(ID.fromPattern, reread.buffer)
         if ok and id then
-            filteredList = id:matchList(fullList)
+            filteredList = id:matchList(tlib.fullList)
             parseStatus = "Pattern"
             return
         end
         parseStatus = "Invalid"
-        filteredList = fullList
+        filteredList = tlib.fullList
     end
     local function onEvent(e)
         if wrap.onEvent(e) then return true end
@@ -186,69 +186,19 @@ do
     end, wrap.restartTicker)
 end
 
-local fragMap = clientlib.getFragMap()
-do
-    local labels = false
-    local scroll = 0
-    local maxScroll
-    local fragMapDraw = function()
-        ui.header(tlib.win.main, "FragMap View")
-        local fh = ui.drawFragMap(tlib.win.main, fragMap, 2, 3, w - 3, h - 4, labels, scroll)
-        ui.color(tlib.win.main, ui.colmap.listFg, ui.colmap.listBg)
-        if scroll > 0 then
-            tlib.win.main.setCursorPos(w, 2)
-            tlib.win.main.write(ui.icons.up)
-        end
-        maxScroll = fh - (h - 4)
-        if scroll < maxScroll then
-            tlib.win.main.setCursorPos(w, h - 1)
-            tlib.win.main.write(ui.icons.down)
-        elseif scroll > maxScroll then
-            scroll = maxScroll
-        end
-        ui.footer(tlib.win.main, ui.icons.back)
-    end
-    local fragMapOnEvent = function(e)
-        if e[1] == "key" then
-            if e[2] == keys.m then
-                labels = not labels
-            elseif e[2] == keys.up then
-                scroll = math.max(0, scroll - 1)
-            elseif e[2] == keys.down then
-                scroll = math.min(scroll + 1, maxScroll)
-            end
-        elseif e[1] == "mouse_scroll" then
-            scroll = math.min(math.max(scroll + e[2], 0), maxScroll)
-        end
-    end
-    registerUI("FragMap", fragMapDraw, fragMapOnEvent)
-end
+tlib.fragMap = clientlib.getFragMap()
 
-do
-    local wrap    = ui.tableGuiWrapper(
-        tlib.win.list, sset.settingList,
-        function(v)
-            local name = v.device .. ":" .. v.name
-            local value = sset.get(v)
-            if value ~= nil and value == v.default then
-                value = tostring(value) .. "*"
-            else
-                value = tostring(value)
-            end
-            return { name, value, v.desc }
-        end, { "Name", "Value", "Description" }, function(i, v)
-            ui.changeSetting(tlib.win.main, v)
-        end
-    )
-    local draw    = function()
-        wrap.draw()
-        ui.footer(tlib.win.main, ui.icons.back)
+
+tlib.registerUI = registerUI
+
+local function loadPlugins(dir)
+    local list = fs.list(dir)
+    for i, v in ipairs(list) do
+        print("Loading Plugin:", v)
+        loadfile(fs.combine(dir, v), "t", _ENV)()(tlib)
     end
-    local onEvent = function(e)
-        wrap.onEvent(e)
-    end
-    registerUI("Settings", draw, onEvent, nil, wrap.restartTicker)
 end
+loadPlugins("disk/tplugins")
 
 local function emptyThread()
     while true do
@@ -284,7 +234,7 @@ local function main()
 end
 parallel.waitForAny(function()
     clientlib.subscribeToChanges(function(l, fm)
-        fullList = l
-        fragMap = fm
+        tlib.fullList = l
+        tlib.fragMap = fm
     end)
 end, main, emptyThread, clientlib.run, sset.checkForChangesThread)
