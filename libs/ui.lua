@@ -55,9 +55,18 @@ end
 ---@param win Window
 ---@param s string
 function ui.header(win, s)
-    ui.color(win, ui.colmap.headerFg, ui.colmap.headerBg)
-    ui.cursor(win, 1, 1)
-    win.clearLine()
+    ui.preset(win, ui.presets.header)
+    ui.clearLine(win, 1)
+    win.write(s)
+end
+
+---Draw a footer at the bottom of the window
+---@param win Window
+---@param s string
+function ui.footer(win, s)
+    local _, h = win.getSize()
+    ui.preset(win, ui.presets.footer)
+    ui.clearLine(win, h)
     win.write(s)
 end
 
@@ -73,6 +82,11 @@ function ui.cursor(dev, x, y)
     return ox, oy
 end
 
+function ui.clearLine(dev, y)
+    dev.setCursorPos(1, y)
+    dev.clearLine()
+end
+
 local colmap = {
     headerBg = colors.blue,
     headerFg = colors.white,
@@ -81,11 +95,26 @@ local colmap = {
     selectedBg = colors.orange,
     selectedFg = colors.black,
     inputBg = colors.lightGray,
-    inputFg = colors.black
+    inputFg = colors.black,
+    footerBg = colors.gray,
+    footerFg = colors.white
 }
 
 ui.colmap = colmap
+local function newPreset(name)
+    return { name .. "Fg", name .. "Bg" }
+end
+ui.presets = {
+    header = newPreset("header"),
+    list = newPreset("list"),
+    selected = newPreset("selected"),
+    input = newPreset("input"),
+    footer = newPreset("footer")
+}
 
+function ui.preset(win, preset)
+    ui.color(win, colmap[preset[1]], colmap[preset[2]])
+end
 
 ---@param s string
 ---@param w integer
@@ -317,6 +346,30 @@ local order = {
 }
 
 ---@param win Window
+---@param mult integer
+---@param selected string?
+local function renderGetItemCountButtons(win, mult, selected)
+    local x = 2
+    local w, h = win.getSize()
+    for i, v in ipairs(order) do
+        win.setCursorPos(x, h)
+        ui.preset(win, ui.presets.footer)
+        if order[i] == selected then
+            ui.preset(win, ui.presets.selected)
+        end
+        win.write(("[%s %3d]"):format(v:upper(), mult * keyMultipliers[v]))
+        x = x + 7
+    end
+
+    ui.preset(win, ui.presets.footer)
+    if "enter" == selected then
+        ui.preset(win, ui.presets.selected)
+    end
+    win.setCursorPos(x, h)
+    win.write("[Enter]")
+end
+
+---@param win Window
 ---@param item CCItemInfo
 ---@param mult integer
 ---@param tick integer
@@ -352,19 +405,12 @@ local function renderGetItemCount(win, item, mult, tick)
     win.setTextColor(ui.colmap.headerFg)
     win.clearLine()
     win.write("Item Request")
-    win.setBackgroundColor(ui.colmap.selectedBg)
-    win.setTextColor(ui.colmap.selectedFg)
+    ui.preset(win, ui.presets.footer)
     win.setCursorPos(1, h)
     win.clearLine()
-    local x = 4
-    win.write(ui.icons.back .. "Q")
-    for i, v in ipairs(order) do
-        win.setCursorPos(x, h)
-        win.write(("[%s %3d]"):format(v:upper(), mult * keyMultipliers[v]))
-        x = x + 8
-    end
-    win.setBackgroundColor(ui.colmap.listBg)
-    win.setTextColor(ui.colmap.listFg)
+    win.write(ui.icons.back)
+    renderGetItemCountButtons(win, mult)
+    ui.preset(win, ui.presets.list)
     win.setVisible(true)
 end
 
@@ -389,11 +435,13 @@ local function getItemCount(win, item)
             heldKeys[e[2]] = true
             if e[2] == keys.enter then
                 clenseEvents()
+                renderGetItemCountButtons(win, mult, "enter")
                 return item.maxCount
             elseif keyMultipliers[keys.getName(e[2])] then
                 clenseEvents()
+                renderGetItemCountButtons(win, mult, keys.getName(e[2]))
                 return keyMultipliers[keys.getName(e[2])] * mult
-            elseif e[2] == keys.q then
+            elseif e[2] == keys.tab then
                 clenseEvents()
                 return
             end
@@ -504,6 +552,8 @@ function reread__index:run(allowCancel)
             if e[1] == "key" and e[2] == keys.enter then
                 return self.buffer
             elseif e[1] == "key" and self.controlHeld and e[2] == keys.c and allowCancel then
+                return
+            elseif e[1] == "key" and e[2] == keys.tab and allowCancel then
                 return
             end
         end
@@ -660,8 +710,8 @@ function ui.changeSetting(win, s)
         ui.color(win, ui.colmap.inputFg, ui.colmap.inputBg)
         ui.cursor(win, 1, h)
         win.clearLine()
-        ui.color(win, ui.colmap.selectedFg, ui.colmap.selectedBg)
-        win.write(ui.icons.back .. "^C")
+        ui.preset(win, ui.presets.footer)
+        win.write(ui.icons.back)
         ui.color(win, ui.colmap.inputFg, ui.colmap.inputBg)
         win.write(">")
         win.setVisible(true)
@@ -669,7 +719,7 @@ function ui.changeSetting(win, s)
     render()
     local cvalue = sset.get(s, true)
     if cvalue == nil then cvalue = "" else cvalue = tostring(cvalue) end
-    local value = reread(win, 5, h, w - 5):setValue(cvalue):run(true)
+    local value = reread(win, 3, h, w - 5):setValue(cvalue):run(true)
     if value ~= nil then
         if value == "" then
             value = nil

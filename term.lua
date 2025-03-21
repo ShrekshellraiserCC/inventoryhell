@@ -104,7 +104,10 @@ do
             setUI(v)
         end
     )
-    registerUI("main", mainList.draw, mainList.onEvent)
+    registerUI("main", function()
+        mainList.draw()
+        ui.footer(mainWindow, "SHREK STORAGE SYSTEM WIP")
+    end, mainList.onEvent)
     uiList[1] = nil
     setUI("main")
 end
@@ -132,7 +135,7 @@ do
         lockUsedSlots()
         expectingItems = false
     end, { true }, nil, { "r" })
-    local reread = ui.reread(tlib.win.input, 2, 1, w - 2)
+    local reread = ui.reread(tlib.win.input, 3, 1, w - 2)
     local filteredList = {}
     ---@type "ID"|"Pattern"|"Invalid"
     local parseStatus = "ID"
@@ -160,14 +163,17 @@ do
         filter()
         wrap.setTable(filteredList)
         wrap.draw()
-        ui.color(tlib.win.input, ui.colmap.inputFg, ui.colmap.inputBg)
+        ui.preset(tlib.win.input, ui.presets.input)
         tlib.win.input.clear()
+        ui.preset(tlib.win.input, ui.presets.footer)
+        ui.cursor(tlib.win.input, 1, 1)
+        tlib.win.input.write(ui.icons.back)
+        ui.preset(tlib.win.input, ui.presets.input)
         if parseStatus == "ID" then
             ui.color(tlib.win.input, colors.green)
         elseif parseStatus == "Invalid" then
             ui.color(tlib.win.input, colors.red)
         end
-        ui.cursor(tlib.win.input, 1, 1)
         tlib.win.input.write(">")
         ui.color(tlib.win.input, ui.colmap.inputFg, ui.colmap.inputBg)
         reread:render()
@@ -200,9 +206,7 @@ do
         elseif scroll > maxScroll then
             scroll = maxScroll
         end
-        ui.color(tlib.win.main, ui.colmap.selectedFg, ui.colmap.selectedBg)
-        tlib.win.main.setCursorPos(1, h)
-        tlib.win.main.clearLine()
+        ui.footer(tlib.win.main, ui.icons.back)
     end
     local fragMapOnEvent = function(e)
         if e[1] == "key" then
@@ -222,7 +226,7 @@ end
 
 do
     local wrap    = ui.tableGuiWrapper(
-        tlib.win.main, sset.settingList,
+        tlib.win.list, sset.settingList,
         function(v)
             local name = v.device .. ":" .. v.name
             local value = sset.get(v)
@@ -238,6 +242,7 @@ do
     )
     local draw    = function()
         wrap.draw()
+        ui.footer(tlib.win.main, ui.icons.back)
     end
     local onEvent = function(e)
         wrap.onEvent(e)
