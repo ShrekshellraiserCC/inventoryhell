@@ -18,7 +18,7 @@ sset.registeredSettings = {}
 sset.settingList = {}
 
 local lsettingLoadTime = os.epoch("utc")
-local lsettingFn = "shreksettings.txt"
+local lsettingFn = "disk/shreksettings.txt"
 local gsettingLoadTime = os.epoch("utc")
 local gsettingFn = "disk/shreksettings_g.txt"
 
@@ -32,7 +32,7 @@ local function saveSettings()
     local gsettings = {}
     local lsettings = {}
     for k, v in pairs(sset.registeredSettings) do
-        if v.gvalue ~= nil and v.hasGlobal then
+        if v.gvalue ~= nil then
             gsettings[k] = v.gvalue
         end
         if v.lvalue ~= nil then
@@ -53,40 +53,12 @@ local function readFromFile(fn)
     return s
 end
 
-local function loadSettings()
-    local gsettings = textutils.unserialize(readFromFile(gsettingFn) or "{}")
-    local lsettings = textutils.unserialize(readFromFile(lsettingFn) or "{}")
-    for k, v in pairs(gsettings) do
-        sset.set(k, v)
-    end
-    for k, v in pairs(lsettings) do
-        sset.set(k, v, true)
-    end
-end
-
----Get a setting value
----@param name string|RegisteredSetting
----@param noDefault boolean?
-function sset.get(name, noDefault)
-    local s = type(name) == "string" and sset.registeredSettings[name] or name
-    if not s then
-        error(("Failed to get non existant setting %s!"):format(name), 0)
-    end
-    if s.lvalue ~= nil then
-        return s.lvalue
-    elseif s.gvalue ~= nil then
-        return s.gvalue
-    elseif not noDefault then
-        return s.default
-    end
-end
-
----Set a settings' value, ignores invalid values
 ---@param name string|RegisteredSetting
 ---@param value any
 ---@param loc boolean? Local setting
-function sset.set(name, value, loc)
-    local s = type(name) == "string" and sset.registeredSettings[name] or name
+---@return boolean
+local function setraw(name, value, loc)
+    local s = (type(name) == "string" and sset.registeredSettings[name]) or (type(name) == "table" and name)
     if not s then
         error(("Failed to set non existant setting %s!"):format(name), 0)
     end
@@ -109,6 +81,47 @@ function sset.set(name, value, loc)
         else
             s.gvalue = svalue
         end
+        return true
+    end
+    return false
+end
+
+local function loadSettings()
+    lsettingLoadTime = os.epoch("utc")
+    gsettingLoadTime = os.epoch("utc")
+    local gsettings = textutils.unserialize(readFromFile(gsettingFn) or "{}")
+    local lsettings = textutils.unserialize(readFromFile(lsettingFn) or "{}")
+    for k, v in pairs(gsettings) do
+        setraw(k, v)
+    end
+    for k, v in pairs(lsettings) do
+        setraw(k, v, true)
+    end
+end
+
+---Get a setting value
+---@param name string|RegisteredSetting
+---@param noDefault boolean?
+function sset.get(name, noDefault)
+    local s = (type(name) == "string" and sset.registeredSettings[name]) or (type(name) == "table" and name)
+    if not s then
+        error(("Failed to get non existant setting %s!"):format(name), 0)
+    end
+    if s.lvalue ~= nil then
+        return s.lvalue
+    elseif s.gvalue ~= nil then
+        return s.gvalue
+    elseif not noDefault then
+        return s.default
+    end
+end
+
+---Set a settings' value, ignores invalid values
+---@param name string|RegisteredSetting
+---@param value any
+---@param loc boolean? Local setting
+function sset.set(name, value, loc)
+    if setraw(name, value, loc) then
         saveSettings()
     end
 end
