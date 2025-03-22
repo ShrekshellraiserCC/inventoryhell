@@ -3,6 +3,7 @@
 
 ---@class CCItemInfo
 ---@field name string
+---@field displayName string
 ---@field nbt string?
 ---@field count number
 ---@field maxCount number

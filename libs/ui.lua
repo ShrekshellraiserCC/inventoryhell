@@ -668,19 +668,24 @@ function ui.changeSetting(win, s)
     local w, h = win.getSize()
     local sset = require("libs.sset")
     local tick = 0
+    local scroll = 0
+    local maxScroll
     local function render()
         win.setVisible(false)
         ui.color(win, ui.colmap.listFg, ui.colmap.listBg)
         win.clear()
-        ui.cursor(win, 2, 3)
+        ui.cursor(win, 2, 3 - scroll)
         win.write(s.name)
         local y = 4
+        maxScroll = 5 - h
         local function writeField(s, d)
-            ui.cursor(win, 3, y)
+            ui.cursor(win, 3, y - scroll)
             y = y + 1
+            maxScroll = maxScroll + 1
             win.write(s)
             win.write(scrollingText(tostring(d), w - 3 - #s, tick))
         end
+        writeField("Side: ", s.side)
         writeField("Type: ", s.type)
         if s.lvalue ~= nil then
             writeField("Local: ", s.lvalue)
@@ -693,15 +698,22 @@ function ui.changeSetting(win, s)
             writeField("Default: ", s.default)
         end
         if s.requiresReboot then
-            ui.cursor(win, 3, y)
-            y = y + 1
-            win.write("Reboot Required")
+            writeField("Reboot Required", "")
         end
-        local split = require("cc.strings").wrap(s.desc, w - 2)
+        local split = require("cc.strings").wrap(s.desc, w - 3)
         for i, v in ipairs(split) do
-            ui.cursor(win, 2, y)
+            ui.cursor(win, 2, y - scroll)
             y = y + 1
+            maxScroll = maxScroll + 1
             win.write(v)
+        end
+        if scroll > 0 then
+            win.setCursorPos(w, 2)
+            win.write(ui.icons.up)
+        end
+        if scroll < maxScroll then
+            win.setCursorPos(w, h - 1)
+            win.write(ui.icons.down)
         end
         ui.color(win, ui.colmap.headerFg, ui.colmap.headerBg)
         ui.cursor(win, 1, 1)
@@ -719,7 +731,34 @@ function ui.changeSetting(win, s)
     render()
     local cvalue = sset.get(s, true)
     if cvalue == nil then cvalue = "" else cvalue = tostring(cvalue) end
-    local value = reread(win, 3, h, w - 5):setValue(cvalue):run(true)
+    local value
+    local function adjustScroll(i)
+        scroll = math.max(0, math.min(scroll + i, maxScroll))
+    end
+    local r = reread(win, 3, h, w - 3)
+    parallel.waitForAny(function()
+        value = r:setValue(cvalue):run(true)
+    end, function()
+        while true do
+            render()
+            r:render()
+            local e = { os.pullEvent() }
+            if e[1] == "key" then
+                if e[2] == keys.up then
+                    adjustScroll(-1)
+                elseif e[2] == keys.down then
+                    adjustScroll(1)
+                end
+            elseif e[1] == "mouse_scroll" then
+                adjustScroll(e[2])
+            end
+        end
+    end, function()
+        while true do
+            sleep(scrollDelay)
+            tick = tick + 1
+        end
+    end)
     if value ~= nil then
         if value == "" then
             value = nil
