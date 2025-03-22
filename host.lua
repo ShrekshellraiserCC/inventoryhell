@@ -18,11 +18,16 @@ for i, v in ipairs(peripheral.getNames()) do
         chestList[#chestList + 1] = v
     end
 end
+local t0 = os.epoch("utc")
 local inv = acl.wrap(chestList, modem)
+local initTime = os.epoch("utc") - t0
+local info = inv.reserve:getSlotInfo()
+print(("Storage initialized %d used (of %d total) slots in %.2f seconds")
+    :format(info.used, info.total, initTime / 1000))
 
 ---Try to call a function, returns nil on error
 ---@param f function
----@param args any[]?
+---@param args {[integer]:any,n:integer}?
 ---@param self boolean
 local function tryCall(f, args, self)
     args = args or {}

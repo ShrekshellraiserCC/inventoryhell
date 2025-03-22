@@ -18,7 +18,7 @@ sset.registeredSettings = {}
 sset.settingList = {}
 
 local lsettingLoadTime = os.epoch("utc")
-local lsettingFn = "disk/shreksettings.txt"
+local lsettingFn = "shreksettings.txt"
 local gsettingLoadTime = os.epoch("utc")
 local gsettingFn = "disk/shreksettings_g.txt"
 
@@ -75,8 +75,7 @@ local function setraw(name, value, loc)
         svalue = value:lower() == "true" or value:lower() == "t"
     end
     if svalue ~= placeholder then
-        if (s.side == "both" or s.side == "local")
-            and (loc or not s.side == "both") then
+        if s.side == "local" or (s.side == "both" and loc) then
             s.lvalue = svalue
         else
             s.gvalue = svalue
@@ -183,11 +182,10 @@ end
 sset.isTerm = setting("boot", "isTerm", "Is this device a terminal?", "boolean", not not turtle, true, "local")
 sset.isCrafter = setting("boot", "isCrafter", "Is this device a crafter?", "boolean", not not turtle, true, "local")
 sset.isHost = setting("boot", "isHost", "Is this device the storage system host?", "boolean", false, true, "local")
+sset.hid = setting("boot", "hid", "Storage Host ID", "number", nil, true, "global")
 
 sset.searchBarOnTop = setting("term", "searchBarOnTop", "Search Bar on Top", "boolean", false, true)
 sset.hideExtra = setting("term", "hideExtra", "Hide NBT and other data", "boolean", true, true)
-
-sset.hid = setting("boot", "hid", "Storage Host ID", "number")
 
 sset.settingChangeCheckInterval = setting("sset", "settingChangeCheckInterval",
     "Delay between checking whether the config files have been updated.", "number", 5, nil, "global")

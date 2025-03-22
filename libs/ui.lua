@@ -335,6 +335,34 @@ local function tableGuiWrapper(win, t, getStr, columns, onSelect, lockWidth, unl
 end
 ui.tableGuiWrapper = tableGuiWrapper
 
+---@param win Window
+---@param title string
+---@param options string[]
+---@param cancelable boolean?
+---@return string?
+---@return integer
+function ui.chooser(win, title, options, cancelable)
+    local running = true
+    local selected, idx
+    local wrap = tableGuiWrapper(win, options, function(v)
+        return { v }
+    end, { title }, function(i, v)
+        idx, selected = i, v
+        running = false
+    end)
+    ui.preset(win, ui.presets.list)
+    while running do
+        wrap.draw()
+        local e = { os.pullEvent() }
+        if not wrap.onEvent(e) then
+            if e[1] == "key" and e[2] == keys.tab and cancelable then
+                running = false
+            end
+        end
+    end
+    return selected, idx
+end
+
 local keyMultipliers = {
     a = 1,
     s = 2,
@@ -759,13 +787,22 @@ function ui.changeSetting(win, s)
             tick = tick + 1
         end
     end)
+    win.setCursorBlink(false)
     if value ~= nil then
         if value == "" then
             value = nil
         end
-        sset.set(s, value)
+        local loc = false
+        if s.side == "both" then
+            local side = ui.chooser(win, "Change which side?", { "local", "global" })
+            loc = side == "local"
+        end
+        sset.set(s, value, loc)
         if s.requiresReboot then
-            -- os.reboot()
+            local reboot = ui.chooser(win, "Reboot to apply?", { "Yes", "No" })
+            if reboot == "Yes" then
+                os.reboot()
+            end
         end
     end
     ui.color(win, ui.colmap.listFg, ui.colmap.listBg)

@@ -865,6 +865,20 @@ function VirtualInv__index:getFragMap()
     return usage
 end
 
+---Get a table containing information about this VirtualInv's slots
+---@return {total:integer,used:integer}
+function VirtualInv__index:getSlotInfo()
+    local totalSlots = #self.realSlotList
+    local usedSlots = 0
+    for invCoord, itemCoord in pairs(self.realItemLUT) do
+        usedSlots = usedSlots + 1
+    end
+    return {
+        total = totalSlots,
+        used = usedSlots
+    }
+end
+
 ---Call a function when any of the contents in this inventory change
 ---@param f fun(self:VirtualInv)
 function VirtualInv__index:setChangedCallback(f)
