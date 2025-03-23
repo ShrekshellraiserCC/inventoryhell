@@ -11,6 +11,7 @@ local sset = {}
 ---@field device string
 ---@field requiresReboot boolean?
 ---@field side "global"|"local"|"both"
+---@field options any[]?
 
 ---@type table<string,RegisteredSetting>
 sset.registeredSettings = {}
@@ -28,15 +29,29 @@ local function writeToFile(fn, t)
     f.close()
 end
 
+local function clone(t)
+    local nt = {}
+    for k, v in pairs(t) do
+        nt[k] = v
+    end
+    return nt
+end
+
 local function saveSettings()
     local gsettings = {}
     local lsettings = {}
     for k, v in pairs(sset.registeredSettings) do
-        if v.gvalue ~= nil then
-            gsettings[k] = v.gvalue
+        if v.gvalue ~= nil or v.side ~= "local" then
+            gsettings[k] = clone(v)
+            gsettings[k].gvalue = nil
+            gsettings[k].lvalue = nil
+            gsettings[k].value = v.gvalue
         end
         if v.lvalue ~= nil then
-            lsettings[k] = v.lvalue
+            lsettings[k] = clone(v)
+            lsettings[k].gvalue = nil
+            lsettings[k].lvalue = nil
+            lsettings[k].value = v.lvalue
         end
     end
     writeToFile(lsettingFn, textutils.serialize(lsettings))
@@ -53,26 +68,44 @@ local function readFromFile(fn)
     return s
 end
 
+local function isIn(t, v)
+    for _, tv in pairs(t) do
+        if tv == v then
+            return true
+        end
+    end
+end
+
 ---@param name string|RegisteredSetting
 ---@param value any
 ---@param loc boolean? Local setting
+---@param lset table? Loaded setting table
 ---@return boolean
-local function setraw(name, value, loc)
+local function setraw(name, value, loc, lset)
     local s = (type(name) == "string" and sset.registeredSettings[name]) or (type(name) == "table" and name)
-    if not s then
+    if not s and lset then
+        s = lset
+        lset.value = nil
+        sset.registeredSettings[name] = lset
+        sset.settingList[#sset.settingList + 1] = lset
+    elseif not s then
         error(("Failed to set non existant setting %s!"):format(name), 0)
     end
     local placeholder = {}
     ---@type any
     local svalue = placeholder
-    if type(value) == s.type or value == nil then
-        svalue = value
-    elseif s.type == "number" and type(value) == "string" then
-        if tonumber(value) then
-            svalue = tonumber(value)
-        end
+    if s.type == "number" and type(value) == "string" and tonumber(value) then
+        value = tonumber(value)
     elseif s.type == "boolean" and type(value) == "string" then
-        svalue = value:lower() == "true" or value:lower() == "t"
+        value = value:lower() == "true" or value:lower() == "t"
+    end
+    if s.options then
+        -- Intentionally a separate if-statement
+        if isIn(s.options, value) then
+            svalue = value
+        end
+    elseif type(value) == s.type or value == nil then
+        svalue = value
     end
     if svalue ~= placeholder then
         if s.side == "local" or (s.side == "both" and loc) then
@@ -91,10 +124,10 @@ local function loadSettings()
     local gsettings = textutils.unserialize(readFromFile(gsettingFn) or "{}")
     local lsettings = textutils.unserialize(readFromFile(lsettingFn) or "{}")
     for k, v in pairs(gsettings) do
-        setraw(k, v)
+        setraw(k, v.value, false, v)
     end
     for k, v in pairs(lsettings) do
-        setraw(k, v, true)
+        setraw(k, v.value, true, v)
     end
 end
 
@@ -162,35 +195,40 @@ end
 ---@param default any
 ---@param requiresReboot boolean?
 ---@param side "global"|"local"|"both"?
-local function setting(device, name, desc, dType, default, requiresReboot, side)
+---@param options any[]?
+local function registerSetting(device, name, desc, dType, default, requiresReboot, side, options)
     if side == nil then side = "both" end
+    local a = sset.registeredSettings[device .. ":" .. name]
     ---@type RegisteredSetting
-    local s = {
-        desc = desc,
+    local s = a or {
         type = dType,
-        default = default,
         name = name,
-        device = device,
-        requiresReboot = requiresReboot,
-        side = side
+        side = side,
     }
-    sset.registeredSettings[device .. ":" .. name] = s
-    sset.settingList[#sset.settingList + 1] = s
+    s.desc = desc
+    s.default = default
+    s.requiresReboot = requiresReboot
+    s.options = options
+    if not a then
+        sset.registeredSettings[device .. ":" .. name] = s
+        sset.settingList[#sset.settingList + 1] = s
+    end
     return s
 end
+sset.register = registerSetting
 
-sset.isTerm = setting("boot", "isTerm", "Is this device a terminal?", "boolean", not not turtle, true, "local")
-sset.isCrafter = setting("boot", "isCrafter", "Is this device a crafter?", "boolean", not not turtle, true, "local")
-sset.isHost = setting("boot", "isHost", "Is this device the storage system host?", "boolean", false, true, "local")
-sset.hid = setting("boot", "hid", "Storage Host ID", "number", nil, true, "global")
+sset.program = registerSetting(
+    "boot", "program", "What function does this computer serve?", "string", nil, true, "local",
+    { "host", "term", "crafter" })
+sset.hid = registerSetting("boot", "hid", "Storage Host ID", "number", nil, true, "global")
 
-sset.searchBarOnTop = setting("term", "searchBarOnTop", "Search Bar on Top", "boolean", false, true)
-sset.hideExtra = setting("term", "hideExtra", "Hide NBT and other data", "boolean", true, true)
+sset.searchBarOnTop = registerSetting("term", "searchBarOnTop", "Search Bar on Top", "boolean", false, true)
+sset.hideExtra = registerSetting("term", "hideExtra", "Hide NBT and other data", "boolean", true, true)
 
-sset.settingChangeCheckInterval = setting("sset", "settingChangeCheckInterval",
+sset.settingChangeCheckInterval = registerSetting("sset", "settingChangeCheckInterval",
     "Delay between checking whether the config files have been updated.", "number", 5, nil, "global")
 
-sset.changeBroadcastInterval = setting("host", "changeBroadcastInterval",
+sset.changeBroadcastInterval = registerSetting("host", "changeBroadcastInterval",
     "Delay between inventory update packets are broadcast.", "number", 0.2, nil, "global")
 
 loadSettings()

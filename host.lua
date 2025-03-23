@@ -71,6 +71,8 @@ local function parseMessage(msg)
         -- }, true)
     elseif msg.type == "pullItems" then
         return inv.reserve:pullItems(msg.from, msg.slot, msg.limit)
+    elseif msg.type == "rebootAll" then
+        os.reboot()
     end
 end
 
@@ -98,7 +100,6 @@ local function processMessageThread()
         local msg = table.remove(messageQueue, 1)
         if msg then
             local response = table.pack(parseMessage(msg.message))
-            print("got message from", msg.sender)
             if msg.message and #response > 0 then
                 rednet.send(msg.sender, { result = response, type = msg.message.type, side = "server" }, protocol)
             end
@@ -111,9 +112,8 @@ end
 local function receieveMessageThread()
     while true do
         local sender, message, prot = rednet.receive(protocol)
-        if type(message) == "table" then
+        if type(message) == "table" and message.side ~= "server" then
             messageQueue[#messageQueue + 1] = { message = message, sender = sender }
-            print("Queued message from", sender)
             os.queueEvent(messageQueuedEvent)
             rednet.send(sender, { type = "ACK", ftype = message.type, side = "server" }, protocol)
         end

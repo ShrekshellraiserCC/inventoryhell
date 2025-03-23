@@ -115,6 +115,11 @@ function clientlib.pullItems(from, slot, limit)
     return res[1], res[2]
 end
 
+function clientlib.rebootAll()
+    rednet.broadcast({ type = "rebootAll" }, clientlib.protocol)
+    os.reboot()
+end
+
 function clientlib.open()
     modem = peripheral.find("modem", function(name, wrapped)
         return not wrapped.isWireless()
@@ -131,7 +136,6 @@ function clientlib.open()
     parallel.waitForAny(function()
         while not hid do
             hid = rednet.lookup(clientlib.protocol)
-            -- hid = 0
         end
     end, function()
         while true do
@@ -162,6 +166,15 @@ function clientlib.close()
 end
 
 ---Update the throbber animation state
-clientlib.run = tickThrobber
+clientlib.run = function()
+    parallel.waitForAny(tickThrobber, function()
+        while true do
+            local sender, message = rednet.receive(clientlib.protocol)
+            if type(message) == "table" and message.type == "rebootAll" then
+                os.reboot()
+            end
+        end
+    end)
+end
 
 return clientlib

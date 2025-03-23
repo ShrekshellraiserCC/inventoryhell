@@ -747,13 +747,20 @@ function ui.changeSetting(win, s)
         ui.cursor(win, 1, 1)
         win.clearLine()
         win.write("Modifying Setting")
-        ui.color(win, ui.colmap.inputFg, ui.colmap.inputBg)
         ui.cursor(win, 1, h)
+        ui.preset(win, ui.presets.footer)
+        if not s.options then
+            ui.color(win, ui.colmap.inputFg, ui.colmap.inputBg)
+        end
         win.clearLine()
         ui.preset(win, ui.presets.footer)
         win.write(ui.icons.back)
-        ui.color(win, ui.colmap.inputFg, ui.colmap.inputBg)
-        win.write(">")
+        if s.options then
+            win.write(" [Enter] to change value")
+        else
+            ui.color(win, ui.colmap.inputFg, ui.colmap.inputBg)
+            win.write(">")
+        end
         win.setVisible(true)
     end
     render()
@@ -765,11 +772,25 @@ function ui.changeSetting(win, s)
     end
     local r = reread(win, 3, h, w - 3)
     parallel.waitForAny(function()
-        value = r:setValue(cvalue):run(true)
+        if s.options then
+            while true do
+                local e = { os.pullEvent("key") }
+                if e[2] == keys.enter then
+                    value = true
+                    return
+                elseif e[2] == keys.tab then
+                    return
+                end
+            end
+        else
+            value = r:setValue(cvalue):run(true)
+        end
     end, function()
         while true do
             render()
-            r:render()
+            if not s.options then
+                r:render()
+            end
             local e = { os.pullEvent() }
             if e[1] == "key" then
                 if e[2] == keys.up then
@@ -788,20 +809,29 @@ function ui.changeSetting(win, s)
         end
     end)
     win.setCursorBlink(false)
+    if s.options and value then
+        value = ui.chooser(win, "Setting", s.options)
+    end
     if value ~= nil then
         if value == "" then
             value = nil
         end
-        local loc = false
+        local loc = s.side == "local"
         if s.side == "both" then
             local side = ui.chooser(win, "Change which side?", { "local", "global" })
             loc = side == "local"
         end
         sset.set(s, value, loc)
         if s.requiresReboot then
-            local reboot = ui.chooser(win, "Reboot to apply?", { "Yes", "No" })
+            local choices = { "Yes - All", "Yes", "No" }
+            if loc then
+                choices = { "Yes", "No" }
+            end
+            local reboot = ui.chooser(win, "Reboot to apply?", choices)
             if reboot == "Yes" then
                 os.reboot()
+            elseif reboot == "Yes - All" then
+                require("libs.clientlib").rebootAll()
             end
         end
     end

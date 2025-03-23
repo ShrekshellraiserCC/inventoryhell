@@ -1,10 +1,10 @@
 local sset = require("libs.sset")
 
-if sset.get(sset.isHost) then
+local prog = sset.get(sset.program)
+if prog == "host" then
     shell.run("disk/host")
-elseif sset.get(sset.isCrafter) then
-    print("Starting as crafter...")
+elseif prog == "crafter" then
     shell.run("disk/crafter")
-elseif sset.get(sset.isTerm) then
+elseif prog == "term" then
     shell.run("disk/term")
 end
