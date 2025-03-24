@@ -8,14 +8,18 @@ local hid, modem
 hid = sset.get(sset.hid)
 
 local throbberStates = { "\129", "\130", "\132", "\136" }
-local ackThrobberStates = { "\x85", "\x83", "\x8a", "\x8c" }
+local ackThrobberStates = throbberStates
+-- local ackThrobberStates = { "\x85", "\x83", "\x8a", "\x8c" }
 --{ "\x8d", "\x85", "\x87", "\x83", "\x8b", "\x8a", "\x8e", "\x8c" }
 --{ "\3", "\4", "\5", "\6" }
 --{ "\186", "\7" }
 --{ "|", "/", "-", "\\" }
-local maxTimeouts = 10
+local rednetTimeout = 0.3
+local maxTimeouts = 10     -- 10 * 0.2 = 3 seconds
+local maxAckTimeouts = 100 -- 100 * 0.2 = 30 seconds
 
 clientlib.throbberState = " "
+clientlib.throbberFg = ui.colmap.headerFg
 
 local function getThrobberChar(i, gotAck)
     return gotAck and ackThrobberStates[(i % #ackThrobberStates) + 1]
@@ -25,12 +29,13 @@ end
 ---Show an activity throbber in the corner
 local function showThrobber(i, gotAck)
     clientlib.throbberState = getThrobberChar(i, gotAck)
+    clientlib.throbberFg = gotAck and ui.colmap.headerFg or ui.colmap.errorFg
     clientlib.renderThrobber(term)
 end
 function clientlib.renderThrobber(win)
     local w, h = win.getSize()
     local ox, oy = ui.cursor(win, w, 1)
-    local ofg, obg = ui.color(win, ui.colmap.headerFg, ui.colmap.headerBg)
+    local ofg, obg = ui.color(win, clientlib.throbberFg, ui.colmap.headerBg)
     win.write(clientlib.throbberState)
     ui.color(win, ofg, obg)
     ui.cursor(win, ox, oy)
@@ -44,15 +49,24 @@ local function tickThrobber()
         throbberTick = throbberTick + 1
     end
 end
+local uid = 0
+local function getUid()
+    uid = uid + 1
+    return uid
+end
+
 local function sendAndRecieve(msg)
+    local id = getUid()
+    msg.id = id
     rednet.send(hid, msg, clientlib.protocol)
     local tries = 0
     local r = 0
     local gotAck = false
     while true do
         showThrobber(throbberTick, gotAck)
-        local sender, response = rednet.receive(clientlib.protocol, 0.2)
-        if sender == hid and type(response) == "table" and response.side == "server" then
+        local sender, response = rednet.receive(clientlib.protocol, rednetTimeout)
+        if sender == hid and type(response) == "table"
+            and response.side == "server" and response.id == id then
             if response.type == msg.type then
                 clientlib.throbberState = " "
                 return response.result
@@ -66,6 +80,8 @@ local function sendAndRecieve(msg)
             r = r + 1
             tries = 0
             rednet.send(hid, msg, clientlib.protocol)
+        elseif tries > maxAckTimeouts and gotAck then
+            gotAck = false
         end
     end
 end

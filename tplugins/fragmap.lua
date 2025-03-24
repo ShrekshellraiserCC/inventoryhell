@@ -1,7 +1,5 @@
 local ui = require "libs.ui"
-local sset = require "libs.sset"
 
---- Settings Menu plugin
 ---@param tlib TermLib
 return function(tlib)
     local labels = false
@@ -23,7 +21,7 @@ return function(tlib)
         elseif scroll > maxScroll then
             scroll = maxScroll
         end
-        ui.footer(tlib.win.main, ui.icons.back)
+        ui.footer(tlib.win.main, ui.icons.back .. " [M mode]")
     end
     local fragMapOnEvent = function(e)
         if e[1] == "key" then

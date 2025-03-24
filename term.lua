@@ -11,10 +11,6 @@ local mainWindow = window.create(term.current(), 1, 1, term.getSize())
 local w, h = mainWindow.getSize()
 local listWindow = window.create(mainWindow, 1, 1, w, h - 1)
 local inputWindow = window.create(mainWindow, 1, h, w, 1)
-if sset.get(sset.searchBarOnTop) then
-    listWindow.reposition(1, 2, w, h - 1)
-    inputWindow.reposition(1, 1, w, 1)
-end
 ---@class TermLib
 local tlib = {
     win = {
@@ -23,7 +19,7 @@ local tlib = {
         input = inputWindow
     }
 }
-tlib.fullList = clientlib.list()
+tlib.fullList = {}
 function tlib.hideAllWin()
     for n, v in pairs(tlib.win) do
         v.setVisible(false)
@@ -32,7 +28,8 @@ function tlib.hideAllWin()
 end
 
 local expectingItems = false
-local debounceTid = os.startTimer(0.2)
+local debounceDelay = sset.get(sset.debounceDelay)
+local debounceTid = os.startTimer(debounceDelay)
 
 ---@type table<number,boolean>
 local lockedSlots = {}
@@ -186,7 +183,10 @@ do
     end, wrap.restartTicker)
 end
 
-tlib.fragMap = clientlib.getFragMap()
+tlib.fragMap = {
+    invs = {},
+    nostack = {}
+}
 
 
 tlib.registerUI = registerUI
@@ -225,11 +225,18 @@ local function main()
         if not activeUI.onEvent(e, tlib) then
             if e[1] == "turtle_inventory" and not expectingItems then
                 os.cancelTimer(debounceTid)
-                debounceTid = os.startTimer(0.2)
+                debounceTid = os.startTimer(debounceDelay)
             elseif e[1] == "key" and e[2] == keys.tab then
                 setUI("main")
             end
         end
+    end
+end
+local function init()
+    tlib.fullList = clientlib.list()
+    tlib.fragMap = clientlib.getFragMap()
+    while true do
+        os.pullEvent("this_event_should_never_happen")
     end
 end
 parallel.waitForAny(function()
@@ -237,4 +244,4 @@ parallel.waitForAny(function()
         tlib.fullList = l
         tlib.fragMap = fm
     end)
-end, main, emptyThread, clientlib.run, sset.checkForChangesThread)
+end, main, emptyThread, clientlib.run, sset.checkForChangesThread, init)

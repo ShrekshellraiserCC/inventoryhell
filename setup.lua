@@ -5,11 +5,13 @@ local w, h = term.getSize()
 local win  = window.create(term.current(), 1, 1, w, h)
 ui.applyPallete(win)
 local lwin = window.create(win, 1, 1, w, h - 1)
+local iwin = window.create(win, 1, h, w, 1)
 
 local tlib = {
     win = {
         list = lwin,
-        main = win
+        main = win,
+        input = iwin
     }
 }
 function tlib.hideAllWin()

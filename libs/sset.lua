@@ -224,8 +224,11 @@ sset.program = registerSetting(
     { "host", "term", "crafter", "host+term" })
 sset.hid = registerSetting("boot:hid", "Storage Host ID", "number", nil, true, "global")
 
-sset.searchBarOnTop = registerSetting("term:searchBarOnTop", "Search Bar on Top", "boolean", false, true)
 sset.hideExtra = registerSetting("term:hideExtra", "Hide NBT and other data", "boolean", true, true)
+sset.debounceDelay = registerSetting("term:debounceDelay", "Debounce turtle_inventory by waiting this long.", "number",
+    0.2, true)
+
+sset.scrollDelay = registerSetting("ui:scrollDelay", "Horizontal Text Scrolling Delay", "number", 0.15, true)
 
 sset.settingChangeCheckInterval = registerSetting("sset:settingChangeCheckInterval",
     "Delay between checking whether the config files have been updated.", "number", 5, nil, "global")

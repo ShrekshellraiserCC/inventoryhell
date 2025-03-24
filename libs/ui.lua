@@ -1,9 +1,10 @@
-local ui = {}
+local ui          = {}
 
-local scrollDelay = 0.15
+local sset        = require("libs.sset")
+local scrollDelay = sset.get(sset.scrollDelay)
 
 -- Credit to Sammy for this palette
-local GNOME = {
+local GNOME       = {
     ["black"]     = 0x171421,
     ["blue"]      = 0x2A7BDE,
     ["brown"]     = 0xA2734C,
@@ -97,7 +98,12 @@ local colmap = {
     inputBg = colors.lightGray,
     inputFg = colors.black,
     footerBg = colors.gray,
-    footerFg = colors.white
+    footerFg = colors.white,
+    errorFg = colors.red,
+    fullColor = colors.blue,
+    partColor = colors.lightBlue,
+    emptyColor = colors.white,
+    nonStackColor = colors.red
 }
 
 ui.colmap = colmap
@@ -608,11 +614,6 @@ local function reread(win, x, y, w)
 end
 ui.reread = reread
 
-local fullColor = colors.blue
-local partColor = colors.lightBlue
-local emptyColor = colors.white
-local nonStackColor = colors.red
-
 ---@param usage FragMap
 ---@param idxLut number[]?
 ---@param sy integer
@@ -630,14 +631,14 @@ local function drawFragMapList(box, usage, idxLut, sy, w, scroll)
         end
         local x = (i - 1) % w + 1
         local y = math.floor((i - 1) / w) + math.floor(sy * 1.5) - scroll
-        local color = partColor
+        local color = colmap.partColor
         if percent == 1 then
-            color = fullColor
+            color = colmap.fullColor
         elseif percent == 0 then
-            color = emptyColor
+            color = colmap.emptyColor
         end
         if usage.nostack[idx] then
-            color = nonStackColor
+            color = colmap.nonStackColor
         end
         lasty = math.ceil(y / 1.5)
         -- lasty = y

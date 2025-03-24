@@ -101,7 +101,13 @@ local function processMessageThread()
         if msg then
             local response = table.pack(parseMessage(msg.message))
             if msg.message and #response > 0 then
-                rednet.send(msg.sender, { result = response, type = msg.message.type, side = "server" }, protocol)
+                rednet.send(msg.sender, {
+                        result = response,
+                        type = msg.message.type,
+                        side = "server",
+                        id = msg.message.id
+                    },
+                    protocol)
             end
         else
             os.pullEvent(messageQueuedEvent)
@@ -115,7 +121,12 @@ local function receieveMessageThread()
         if type(message) == "table" and message.side ~= "server" then
             messageQueue[#messageQueue + 1] = { message = message, sender = sender }
             os.queueEvent(messageQueuedEvent)
-            rednet.send(sender, { type = "ACK", ftype = message.type, side = "server" }, protocol)
+            rednet.send(sender, {
+                type = "ACK",
+                ftype = message.type,
+                side = "server",
+                id = message.id
+            }, protocol)
         end
     end
 end
