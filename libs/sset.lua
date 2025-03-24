@@ -8,7 +8,6 @@ local sset = {}
 ---@field lvalue any
 ---@field default any
 ---@field name string
----@field device string
 ---@field requiresReboot boolean?
 ---@field side "global"|"local"|"both"
 ---@field options any[]?
@@ -37,21 +36,24 @@ local function clone(t)
     return nt
 end
 
+local function pruneSetting(set, value)
+    local s = clone(set)
+    s.gvalue = nil
+    s.lvalue = nil
+    s.name = nil
+    s.value = value
+    return s
+end
+
 local function saveSettings()
     local gsettings = {}
     local lsettings = {}
     for k, v in pairs(sset.registeredSettings) do
         if v.gvalue ~= nil or v.side ~= "local" then
-            gsettings[k] = clone(v)
-            gsettings[k].gvalue = nil
-            gsettings[k].lvalue = nil
-            gsettings[k].value = v.gvalue
+            gsettings[k] = pruneSetting(v, v.gvalue)
         end
         if v.lvalue ~= nil then
-            lsettings[k] = clone(v)
-            lsettings[k].gvalue = nil
-            lsettings[k].lvalue = nil
-            lsettings[k].value = v.lvalue
+            lsettings[k] = pruneSetting(v, v.lvalue)
         end
     end
     writeToFile(lsettingFn, textutils.serialize(lsettings))
@@ -86,6 +88,7 @@ local function setraw(name, value, loc, lset)
     if not s and lset then
         s = lset
         lset.value = nil
+        lset.name = name
         sset.registeredSettings[name] = lset
         sset.settingList[#sset.settingList + 1] = lset
     elseif not s then
@@ -188,7 +191,6 @@ function sset.checkForChangesThread()
 end
 
 ---Register a new type of setting
----@param device string
 ---@param name string
 ---@param desc string
 ---@param dType type
@@ -196,9 +198,9 @@ end
 ---@param requiresReboot boolean?
 ---@param side "global"|"local"|"both"?
 ---@param options any[]?
-local function registerSetting(device, name, desc, dType, default, requiresReboot, side, options)
+local function registerSetting(name, desc, dType, default, requiresReboot, side, options)
     if side == nil then side = "both" end
-    local a = sset.registeredSettings[device .. ":" .. name]
+    local a = sset.registeredSettings[name]
     ---@type RegisteredSetting
     local s = a or {
         type = dType,
@@ -210,7 +212,7 @@ local function registerSetting(device, name, desc, dType, default, requiresReboo
     s.requiresReboot = requiresReboot
     s.options = options
     if not a then
-        sset.registeredSettings[device .. ":" .. name] = s
+        sset.registeredSettings[name] = s
         sset.settingList[#sset.settingList + 1] = s
     end
     return s
@@ -218,17 +220,17 @@ end
 sset.register = registerSetting
 
 sset.program = registerSetting(
-    "boot", "program", "What function does this computer serve?", "string", nil, true, "local",
-    { "host", "term", "crafter" })
-sset.hid = registerSetting("boot", "hid", "Storage Host ID", "number", nil, true, "global")
+    "boot:program", "What function does this computer serve?", "string", nil, true, "local",
+    { "host", "term", "crafter", "host+term" })
+sset.hid = registerSetting("boot:hid", "Storage Host ID", "number", nil, true, "global")
 
-sset.searchBarOnTop = registerSetting("term", "searchBarOnTop", "Search Bar on Top", "boolean", false, true)
-sset.hideExtra = registerSetting("term", "hideExtra", "Hide NBT and other data", "boolean", true, true)
+sset.searchBarOnTop = registerSetting("term:searchBarOnTop", "Search Bar on Top", "boolean", false, true)
+sset.hideExtra = registerSetting("term:hideExtra", "Hide NBT and other data", "boolean", true, true)
 
-sset.settingChangeCheckInterval = registerSetting("sset", "settingChangeCheckInterval",
+sset.settingChangeCheckInterval = registerSetting("sset:settingChangeCheckInterval",
     "Delay between checking whether the config files have been updated.", "number", 5, nil, "global")
 
-sset.changeBroadcastInterval = registerSetting("host", "changeBroadcastInterval",
+sset.changeBroadcastInterval = registerSetting("host:changeBroadcastInterval",
     "Delay between inventory update packets are broadcast.", "number", 0.2, nil, "global")
 
 loadSettings()

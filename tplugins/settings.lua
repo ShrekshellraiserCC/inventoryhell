@@ -7,7 +7,7 @@ return function(tlib)
     local wrap    = ui.tableGuiWrapper(
         tlib.win.list, sset.settingList,
         function(v)
-            local name = v.device .. ":" .. v.name
+            local name = v.name
             local value = sset.get(v)
             if value ~= nil and value == v.default then
                 value = tostring(value) .. "*"
