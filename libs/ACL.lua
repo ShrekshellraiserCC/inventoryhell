@@ -252,20 +252,300 @@ function lib.wrap(invList, wmodem)
     local busyMachines = {}
     ---@type table<string,RegisteredMachineType> inv index,slot
     local registeredMachineTypes = {}
+    ---@type string[]
+    local machineTypeList = {}
     ---@type table<string,RegisteredMachine>
     local registeredMachines = {}
 
     ---@class RegisteredRecipe
     ---@field type "grid"|string machine type
     ---@field items ItemDescriptor[]
-    ---@field recipe integer[]|{[1]:integer,[2]:integer}[]
+    ---@field recipe table<integer,integer|{[1]:integer,[2]:integer}>
     ---@field produces integer
     ---@field product ItemCoordinate
 
+    machineTypeList[1] = "grid"
+    registeredMachineTypes.grid = {
+        id = 1,
+        output = { 0, 0 },
+        slots = {},
+        mtype = "grid"
+    }
     ---@type table<ItemCoordinate,RegisteredRecipe[]>
     local registeredRecipes = {}
 
+
     this.craft = {}
+    ---@type string[]
+    local IDCacheList = {}
+    ---@type table<string,integer>
+    local IDCacheLUT = {}
+    ---@param id ItemDescriptor|string
+    ---@return integer
+    local function cacheID(id)
+        if type(id) == "table" then
+            id = id:serialize()
+        end
+        if IDCacheLUT[id] then
+            return IDCacheLUT[id]
+        end
+        local idx = #IDCacheList + 1
+        IDCacheLUT[id] = idx
+        IDCacheList[idx] = id
+        return idx
+    end
+    ---@param m RegisteredMachine
+    ---@return string
+    local function serializeMachine(m)
+        local mid = registeredMachineTypes[m.mtype].id
+        local pid = m.ptype and registeredMachineTypes[m.ptype].id
+        local s = {}
+        s[#s + 1] = "M"
+        s[#s + 1] = mid
+        s[#s + 1] = "P"
+        s[#s + 1] = pid or nil
+        s[#s + 1] = "N"
+        s[#s + 1] = "'"
+        s[#s + 1] = m.name
+        s[#s + 1] = "'"
+        s[#s + 1] = "I"
+        s[#s + 1] = #m.invs
+        s[#s + 1] = "="
+        for i, v in ipairs(m.invs) do
+            s[#s + 1] = v
+            s[#s + 1] = ","
+        end
+        s[#s] = ";"
+        return table.concat(s, "")
+    end
+    ---@param r RegisteredRecipe
+    local function serializeRecipe(r)
+        local s = {}
+        s[#s + 1] = "R"
+        s[#s + 1] = cacheID(ItemDescriptor.fromName(r.product))
+        s[#s + 1] = "T"
+        s[#s + 1] = registeredMachineTypes[r.type].id
+        s[#s + 1] = "P"
+        s[#s + 1] = r.produces
+        s[#s + 1] = "I"
+        s[#s + 1] = #r.items
+        s[#s + 1] = "="
+        for i, v in ipairs(r.items) do
+            s[#s + 1] = cacheID(v)
+            s[#s + 1] = ","
+        end
+        s[#s] = ";" -- remove trailing comma
+        local recipeSize = 0
+        for _ in pairs(r.recipe) do
+            recipeSize = recipeSize + 1
+        end
+        s[#s + 1] = "r"
+        s[#s + 1] = recipeSize
+        s[#s + 1] = ":"
+        for i = 1, recipeSize do
+            local v = r.recipe[i]
+            if type(v) == "number" then
+                s[#s + 1] = v
+            elseif type(v) == "table" then
+                s[#s + 1] = "{"
+                s[#s + 1] = v[1]
+                s[#s + 1] = ","
+                s[#s + 1] = v[2]
+                s[#s + 1] = "}"
+            end
+            s[#s + 1] = ","
+        end
+        s[#s] = ";"
+        return table.concat(s, "")
+    end
+    ---@param t RegisteredMachineType
+    ---@return string
+    local function serializeMachineType(t)
+        local s = {}
+        s[#s + 1] = "T"
+        s[#s + 1] = t.mtype
+        s[#s + 1] = ";I"
+        s[#s + 1] = t.id
+        s[#s + 1] = "O{"
+        s[#s + 1] = t.output[1]
+        s[#s + 1] = ","
+        s[#s + 1] = t.output[2]
+        s[#s + 1] = "}"
+        s[#s + 1] = "P"
+        s[#s + 1] = t.ptype
+        s[#s + 1] = ";"
+        local n = #t.slots
+        s[#s + 1] = "N"
+        s[#s + 1] = n
+        s[#s + 1] = ":"
+        for i = 1, n do
+            local v = t.slots[i]
+            s[#s + 1] = "{"
+            s[#s + 1] = v[1]
+            s[#s + 1] = ","
+            s[#s + 1] = v[2]
+            s[#s + 1] = "}"
+            s[#s + 1] = ","
+        end
+        s[#s] = ";"
+        return table.concat(s, "")
+    end
+    ---@param s string
+    ---@return RegisteredMachineType
+    local function unserializeMachineType(s)
+        local t = {}
+        local p = "T([%a_%d]+);I(%d+)O{(%d+),(%d*)}P([%a_%d]*);N(%d+)[:;]"
+        local start, finish = s:find(p)
+        local mtype, id, out1, out2, ptype, slots = s:match(p)
+        t.mtype = mtype
+        t.output = { tonumber(out1), tonumber(out2) }
+        t.ptype = ptype
+        t.id = id
+        t.slots = {}
+        local idx = finish + 1
+        for i = 1, tonumber(slots) do
+            local p = "{(%d+),(%d+)}([,;])"
+            local _, last = s:find(p, idx)
+            local n1, n2, e = s:match(p, idx)
+            idx = last + 1
+            t.slots[i] = { tonumber(n1), tonumber(n2) }
+        end
+        return t
+    end
+    ---@param s string
+    ---@param idx integer
+    ---@return integer
+    ---@return integer|{[1]:integer,[2]:integer}?
+    ---@return string
+    local function parseRecipePart(s, idx)
+        if s:sub(idx, idx) == "{" then
+            local p = "{(%d+),(%d+)}([,;])"
+            local _, last = s:find(p, idx)
+            local n1, n2, e = s:match(p, idx)
+            return last + 1, { tonumber(n1), tonumber(n2) }, e
+        elseif s:sub(idx, idx):match("[;,]") then
+            return idx + 1, nil, ","
+        end
+        local p = "([%d]+)([,;])"
+        local _, last = s:find(p, idx)
+        local n, e = s:match(p, idx)
+        return last + 1, tonumber(n), e
+    end
+    ---@param s string
+    ---@return RegisteredRecipe
+    local function unserializeRecipe(s)
+        local firstPattern = "R(%d+)T(%d+)P(%d+)I(%d+)="
+        local start, finish = s:find(firstPattern)
+        local productID, rtype, produces, itemCount = s:match(firstPattern)
+        local idx = finish + 1
+        ---@type RegisteredRecipe
+        local r = {
+            items = {},
+            produces = tonumber(produces),
+            product = IDCacheList[tonumber(productID)]:sub(2),
+            recipe = {},
+            type = machineTypeList[tonumber(rtype)]
+        }
+        for i = 1, itemCount do
+            local itemID = 0
+            idx, itemID = parseRecipePart(s, idx)
+            r.items[i] = ItemDescriptor.unserialize(IDCacheList[itemID])
+        end
+        local recipeCount = s:match("(%d+):", idx)
+        idx = idx + #recipeCount + 2
+        recipeCount = tonumber(recipeCount)
+        for i = 1, recipeCount do
+            idx, r.recipe[i] = parseRecipePart(s, idx)
+        end
+        return r
+    end
+    ---@param s string
+    ---@return RegisteredMachine
+    local function unserializeMachine(s)
+        local p = "M(%d+)P(%d*)N'([%a_%d:]+)'I(%d+)="
+        local start, finish = s:find(p)
+        local machineID, pmachineID, name, inventoryCount = s:match(p)
+        ---@type RegisteredMachine
+        local m = {
+            invs = {},
+            mtype = machineTypeList[tonumber(machineID)],
+            ptype = pmachineID ~= "" and machineTypeList[tonumber(pmachineID)],
+            name = name
+        }
+        local idx = finish + 1
+        for i = 1, inventoryCount do
+            local inv = s:match("([%a_%d:]+)[,;]", idx)
+            idx = idx + #inv + 1
+            m.invs[i] = inv
+        end
+        return m
+    end
+    local function saveToFile(fn, s)
+        local f = assert(fs.open(fn, "w"))
+        f.write(s)
+        f.close()
+    end
+    local function readFromFile(fn)
+        local f = assert(fs.open(fn, "r"))
+        local s = f.readAll()
+        f.close()
+        return s
+    end
+    local function saveRecipes()
+        local sreps = {}
+        for ic, recipes in pairs(registeredRecipes) do
+            for _, recipe in ipairs(recipes) do
+                local sr = serializeRecipe(recipe)
+                sreps[#sreps + 1] = sr
+            end
+        end
+        local smachines = {}
+        for n, m in pairs(registeredMachines) do
+            local sm = serializeMachine(m)
+            smachines[#smachines + 1] = sm
+        end
+        local stypes = {}
+        for _, mt in ipairs(machineTypeList) do
+            local sm = serializeMachineType(registeredMachineTypes[mt])
+            stypes[#stypes + 1] = sm
+        end
+        saveToFile("disk/recipes.txt", textutils.serialise(sreps))
+        saveToFile("disk/machines.txt", textutils.serialise(smachines))
+        saveToFile("disk/machine_types.txt", textutils.serialise(stypes))
+        saveToFile("disk/item_cache.txt", textutils.serialise(IDCacheList))
+    end
+    this.craft.saveRecipes = saveRecipes
+
+    local function loadRecipes()
+        local sreps = textutils.unserialise(readFromFile("disk/recipes.txt"))
+        IDCacheList = textutils.unserialise(readFromFile("disk/item_cache.txt"))
+        IDCacheLUT = {}
+        for i, v in ipairs(IDCacheList) do
+            IDCacheLUT[v] = i
+        end
+        local smachines = textutils.unserialise(readFromFile("disk/machines.txt"))
+        local stypes = textutils.unserialise(readFromFile("disk/machine_types.txt"))
+        registeredMachineTypes = {}
+        machineTypeList = {}
+        for i, v in ipairs(stypes) do
+            local st = unserializeMachineType(v)
+            registeredMachineTypes[st.mtype] = st
+            machineTypeList[#machineTypeList + 1] = st.mtype
+        end
+        registeredMachines = {}
+        for i, v in ipairs(smachines) do
+            local m = unserializeMachine(v)
+            registeredMachines[m.name] = m
+        end
+        registeredRecipes = {}
+        for i, v in ipairs(sreps) do
+            local r = unserializeRecipe(v)
+            registeredRecipes[r.product] = registeredRecipes[r.product] or {}
+            local recipes = registeredRecipes[r.product]
+            recipes[#recipes + 1] = r
+        end
+    end
+    this.craft.loadRecipes = loadRecipes
 
     ---Register a recipe
     ---@param mtype string
@@ -309,7 +589,7 @@ function lib.wrap(invList, wmodem)
         end
         jobItemCounts = jobItemCounts or {}
         local taskItemCounts = {}
-        for _, item in ipairs(recipe.recipe) do
+        for _, item in pairs(recipe.recipe) do
             if type(item) == "number" then
                 local id = recipe.items[item]:serialize()
                 jobItemCounts[id] = (jobItemCounts[id] or 0) + 1 * craftCount
@@ -430,12 +710,15 @@ function lib.wrap(invList, wmodem)
     ---@field invs string[]
     ---@field mtype string
     ---@field ptype string?
+    ---@field name string
 
     ---@alias MachineProcess fun(craft:integer,invs:{[1]:string,[2]:integer}[]):function
 
     ---@class RegisteredMachineType
     ---@field slots SlotMap[]
+    ---@field id integer
     ---@field output SlotMap
+    ---@field mtype string
     ---@field ptype string?
     ---@field round (fun(n:integer):integer)? Round to most efficient processing interval
     ---@field process MachineProcess? Function ran alongside item i/o functions
@@ -509,14 +792,20 @@ function lib.wrap(invList, wmodem)
     ---@param round (fun(n:integer):integer)? Round to most efficient processing interval
     ---@param process MachineProcess? Function ran alongside item i/o functions
     function this.craft.newMachineType(mtype, slotmap, outputSlot, round, process)
-        registeredMachineTypes[mtype] = {
-            slots = slotmap,
-            output = outputSlot,
-            round = round,
-            process = process
-        }
-        busyMachines[mtype] = {}
-        freeMachines[mtype] = {}
+        if not registeredMachineTypes[mtype] then
+            local idx = #machineTypeList + 1
+            machineTypeList[idx] = mtype
+            registeredMachineTypes[mtype] = {
+                slots = slotmap,
+                output = outputSlot,
+                round = round,
+                process = process,
+                id = idx,
+                mtype = mtype,
+            }
+            busyMachines[mtype] = {}
+            freeMachines[mtype] = {}
+        end
     end
 
     ---Add a machine with the type mtype, which handles crafting via ptype recipes
@@ -526,12 +815,18 @@ function lib.wrap(invList, wmodem)
     ---@param outputslot SlotMap
     ---@param process MachineProcess? Function ran alongside item i/o functions
     function this.craft.newAlternativeMachineType(mtype, ptype, slotmap, outputslot, process)
-        registeredMachineTypes[mtype] = {
-            slots = slotmap,
-            output = outputslot,
-            ptype = ptype,
-            process = process
-        }
+        if not registeredMachineTypes[mtype] then
+            local idx = #machineTypeList + 1
+            machineTypeList[idx] = mtype
+            registeredMachineTypes[mtype] = {
+                slots = slotmap,
+                output = outputslot,
+                ptype = ptype,
+                process = process,
+                id = idx,
+                mtype = mtype
+            }
+        end
     end
 
     ---Register a machine of a given type
@@ -541,7 +836,7 @@ function lib.wrap(invList, wmodem)
     function this.craft.registerMachine(mtype, name, invs)
         invs = invs or { name }
         local ptype = registeredMachineTypes[mtype].ptype
-        registeredMachines[name] = { invs = invs, mtype = mtype, ptype = ptype }
+        registeredMachines[name] = { invs = invs, mtype = mtype, ptype = ptype, name = name }
         freeMachines[ptype or mtype][name] = true
     end
 
