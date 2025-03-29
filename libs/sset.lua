@@ -235,6 +235,9 @@ sset.settingChangeCheckInterval = registerSetting("sset:settingChangeCheckInterv
 
 sset.changeBroadcastInterval = registerSetting("host:changeBroadcastInterval",
     "Delay between inventory update packets are broadcast.", "number", 0.2, nil, "global")
+sset.taskBroadcastInterval = registerSetting("host:taskBroadcastInterval", "Delay between task update packets.", "number",
+    0.2, true, "global")
+
 
 loadSettings()
 

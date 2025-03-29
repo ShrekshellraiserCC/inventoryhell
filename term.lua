@@ -1,25 +1,40 @@
 local clientlib = require("libs.clientlib")
 local ID = require("libs.ItemDescriptor")
 local sset = require("libs.sset")
-clientlib.open()
+local STL = require("libs.STL")
+local scheduler = STL.Scheduler()
 local ui = require("libs.ui")
 ui.applyPallete(term)
 
-local lname = clientlib.modem.getNameLocal()
 
 local mainWindow = window.create(term.current(), 1, 1, term.getSize())
 local w, h = mainWindow.getSize()
 local listWindow = window.create(mainWindow, 1, 1, w, h - 1)
 local inputWindow = window.create(mainWindow, 1, h, w, 1)
+local logWindow = window.create(mainWindow, 1, 2, w, h - 2)
 ---@class TermLib
 local tlib = {
     win = {
         main = mainWindow,
         list = listWindow,
-        input = inputWindow
-    }
+        input = inputWindow,
+        log = logWindow
+    },
+    clientlib = clientlib
 }
+tlib.scheduler = scheduler
+tlib.STL = STL
 tlib.fullList = {}
+function tlib.log(s, ...)
+    local old = term.redirect(logWindow)
+    print(os.date("[%T]"), s:format(...))
+    term.redirect(old)
+end
+
+clientlib.setLogger(tlib.log)
+clientlib.open()
+local lname = clientlib.modem.getNameLocal()
+
 function tlib.hideAllWin()
     for n, v in pairs(tlib.win) do
         v.setVisible(false)
@@ -200,6 +215,18 @@ local function loadPlugins(dir)
 end
 loadPlugins("disk/tplugins")
 
+do
+    local function render()
+        ui.header(mainWindow, "Log")
+        ui.footer(mainWindow, ui.icons.back)
+        logWindow.setVisible(true)
+        logWindow.setVisible(false)
+    end
+    local function onEvent()
+    end
+    registerUI("Log", render, onEvent)
+end
+
 local function emptyThread()
     while true do
         local e = table.pack(os.pullEvent())
@@ -235,13 +262,17 @@ end
 local function init()
     tlib.fullList = clientlib.list()
     tlib.fragMap = clientlib.getFragMap()
-    while true do
-        os.pullEvent("this_event_should_never_happen")
-    end
+    tlib.log("Client Init Done")
 end
-parallel.waitForAny(function()
-    clientlib.subscribeToChanges(function(l, fm)
-        tlib.fullList = l
-        tlib.fragMap = fm
-    end)
-end, main, emptyThread, clientlib.run, sset.checkForChangesThread, init)
+
+scheduler.queueTask(STL.Task.new({
+    main, emptyThread,
+    clientlib.run, sset.checkForChangesThread, init,
+    function()
+        clientlib.subscribeToChanges(function(l, fm)
+            tlib.fullList = l
+            tlib.fragMap = fm
+        end)
+    end
+}, "Main"))
+scheduler.run()

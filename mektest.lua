@@ -63,9 +63,11 @@ inv.craft.registerRecipe("enricher", { diamond }, { 1 }, enrichedDiamond:toCoord
 inv.craft.registerRecipe("enricher", { reds }, { 1 }, enrichedRedstone:toCoord(), 1)
 inv.craft.registerRecipe("enricher", { coal }, { 1 }, enrichedCarbon:toCoord(), 1)
 
-local task = assert(inv.craft.craft(smelter, 1), "Not enough items!")
+inv.craft.saveRecipes()
 
-print(task:toString())
-task:queue()
+-- local task = assert(inv.craft.craft(smelter, 1), "Not enough items!")
 
-inv:run()
+-- print(task:toString())
+-- task:queue()
+
+-- inv:run()

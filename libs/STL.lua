@@ -166,6 +166,12 @@ local function Scheduler()
     local taskThreadCounts = {}
     ---@type table<TaskID,number>
     local taskThreadWidth = {}
+    ---@type table<TaskID,Task>
+    local allTasks = {}
+    ---@type table<TaskID,boolean>
+    local runningTasks = {}
+    ---@type fun(self)?
+    local changedCallback
     ---Number of items moved by a given TaskID
     ---@type table<TaskID,number>
     local taskMovedItems = {}
@@ -187,10 +193,19 @@ local function Scheduler()
         end
     end
 
+    function run.setChangedCallback(f)
+        changedCallback = f
+    end
+
     ---Queue a task to be ran
     ---@param t Task
     function run.queueTask(t)
         queueSubtasks(t)
+        allTasks[t.id] = t
+        runningTasks[t.id] = false
+        if changedCallback then
+            changedCallback(run)
+        end
         taskThreadWidth[t.id] = t.width
         local threads = t:_getThreads()
         for _, v in ipairs(threads) do
@@ -221,13 +236,22 @@ local function Scheduler()
             taskMovedItems[t.id] = taskMovedItems[t.id] + (filter or 0)
             if taskThreadCounts[t.id] == 0 then
                 taskThreadCounts[t.id] = nil
+                runningTasks[t.id] = nil
+                allTasks[t.id] = nil
                 if t.callback then
                     t.callback(taskMovedItems[t.id])
+                end
+                if changedCallback then
+                    changedCallback(run)
                 end
             end
             return 0
         elseif not ok then
             error(debug.traceback(t.thread, filter), 0)
+        end
+        runningTasks[t.id] = true
+        if changedCallback then
+            changedCallback(run)
         end
         executingThreads[#executingThreads + 1] = t
         return taskThreadWidth[t.id]
@@ -279,8 +303,13 @@ local function Scheduler()
         taskMovedItems[task.id] = taskMovedItems[task.id] + filter
         if taskThreadCounts[task.id] == 0 then
             taskThreadCounts[task.id] = nil
+            allTasks[task.id] = nil
+            runningTasks[task.id] = nil
             if task.callback then
                 task.callback(taskMovedItems[task.id])
+            end
+            if changedCallback then
+                changedCallback(run)
             end
         end
     end
@@ -335,6 +364,29 @@ local function Scheduler()
             local e = table.pack(os.pullEvent())
             tick(e)
         end
+    end
+
+    ---@class TaskListInfo
+    ---@field name string?
+    ---@field id integer
+    ---@field count integer
+    ---@field priority integer
+    ---@field running boolean
+
+    ---@return TaskListInfo[]
+    function run.list()
+        local l = {}
+        for id, v in pairs(allTasks) do
+            local count = taskThreadCounts[id]
+            l[#l + 1] = {
+                name = v.name,
+                id = id,
+                count = count,
+                priority = v.priority,
+                running = runningTasks[id]
+            }
+        end
+        return l
     end
 
     return run

@@ -12,6 +12,12 @@ end)
 rednet.open(peripheral.getName(modem))
 rednet.host(protocol, hostname)
 
+local id = os.getComputerID()
+local function broadcast(m)
+    rednet.broadcast(m, protocol)
+    rednet.send(id, m, protocol)
+end
+
 local chestList = {}
 for i, v in ipairs(peripheral.getNames()) do
     if v:match("minecraft:chest") then
@@ -73,16 +79,19 @@ local function parseMessage(msg)
         return inv.reserve:pullItems(msg.from, msg.slot, msg.limit)
     elseif msg.type == "rebootAll" then
         os.reboot()
+    elseif msg.type == "listThreads" then
+        return inv.scheduler.list()
     end
 end
 
 local inventoryDirty = false
+local taskDirty = false
 local function broadcastChange()
-    rednet.broadcast({
+    broadcast({
         type = "inventoryChange",
         list = inv.reserve:list(),
         fragMap = inv.reserve:getFragMap()
-    }, protocol)
+    })
 end
 
 local function onChanged(self)
@@ -90,6 +99,12 @@ local function onChanged(self)
 end
 inv.reserve:setChangedCallback(onChanged)
 onChanged(inv.reserve)
+
+local function onTaskChanged(self)
+    taskDirty = true
+end
+inv.scheduler.setChangedCallback(onTaskChanged)
+onTaskChanged(inv.scheduler)
 
 local messageQueuedEvent = "message_queued"
 
@@ -141,13 +156,34 @@ local function inventoryChangeThread()
     end
 end
 
-local f = { receieveMessageThread, inventoryChangeThread, sset.checkForChangesThread }
-
-for i = 1, 1 do
-    f[#f + 1] = processMessageThread
+local function sendTaskUpdateThread()
+    while true do
+        sleep(sset.get(sset.taskBroadcastInterval))
+        if taskDirty then
+            taskDirty = false
+            broadcast({
+                type = "taskUpdate",
+                list = inv.scheduler.list(),
+            })
+        end
+    end
 end
 
+local f = {
+    receieveMessageThread,
+    inventoryChangeThread,
+    sset.checkForChangesThread,
+    sendTaskUpdateThread
+}
 local hostTask = stl.Task.new(f, "Host")
 inv.scheduler.queueTask(hostTask)
+
+local mf = {}
+for i = 1, 1 do
+    mf[#mf + 1] = processMessageThread
+end
+local messageTask = stl.Task.new(mf, "Messages")
+
+inv.scheduler.queueTask(messageTask)
 
 inv.run()

@@ -7,6 +7,17 @@ clientlib.protocol = "SHREKSTORAGE"
 local hid, modem
 hid = sset.get(sset.hid)
 
+local logger
+local function log(s, ...)
+    if logger then
+        logger(s, ...)
+    end
+end
+
+function clientlib.setLogger(l)
+    logger = l
+end
+
 local throbberStates = { "\129", "\130", "\132", "\136" }
 local ackThrobberStates = throbberStates
 -- local ackThrobberStates = { "\x85", "\x83", "\x8a", "\x8c" }
@@ -58,6 +69,7 @@ end
 local function sendAndRecieve(msg)
     local id = getUid()
     msg.id = id
+    log("Sent request %d type=%s", id, msg.type)
     rednet.send(hid, msg, clientlib.protocol)
     local tries = 0
     local r = 0
@@ -69,9 +81,11 @@ local function sendAndRecieve(msg)
             and response.side == "server" and response.id == id then
             if response.type == msg.type then
                 clientlib.throbberState = " "
+                log("Got response for %d", id)
                 return response.result
             elseif response.type == "ACK" and response.ftype == msg.type then
                 gotAck = true
+                log("Got ACK for %d", id)
             end
         elseif sender == nil then
             tries = tries + 1
@@ -79,9 +93,11 @@ local function sendAndRecieve(msg)
         if tries > maxTimeouts and not gotAck then
             r = r + 1
             tries = 0
+            log("Resending request %d", id)
             rednet.send(hid, msg, clientlib.protocol)
         elseif tries > maxAckTimeouts and gotAck then
             gotAck = false
+            log("ACK expired for %d", id)
         end
     end
 end
@@ -131,6 +147,12 @@ function clientlib.pullItems(from, slot, limit)
     return res[1], res[2]
 end
 
+---@return TaskListInfo[]
+function clientlib.listThreads()
+    local res = sendAndRecieve({ type = "listThreads" })
+    return res[1]
+end
+
 function clientlib.rebootAll()
     rednet.broadcast({ type = "rebootAll" }, clientlib.protocol)
     os.reboot()
@@ -173,6 +195,16 @@ function clientlib.subscribeToChanges(f)
         local sender, msg = rednet.receive(clientlib.protocol)
         if sender == hid and type(msg) == "table" and msg.type == "inventoryChange" then
             f(msg.list, msg.fragMap)
+        end
+    end
+end
+
+---@param f fun(l:TaskListInfo[])
+function clientlib.subscribeToTasks(f)
+    while true do
+        local sender, msg = rednet.receive(clientlib.protocol)
+        if sender == hid and type(msg) == "table" and msg.type == "taskUpdate" then
+            f(msg.list)
         end
     end
 end

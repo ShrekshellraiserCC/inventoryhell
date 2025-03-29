@@ -527,22 +527,25 @@ function lib.wrap(invList, wmodem)
         local stypes = textutils.unserialise(readFromFile("disk/machine_types.txt"))
         registeredMachineTypes = {}
         machineTypeList = {}
+        freeMachines = {}
+        busyMachines = {}
         for i, v in ipairs(stypes) do
             local st = unserializeMachineType(v)
-            registeredMachineTypes[st.mtype] = st
-            machineTypeList[#machineTypeList + 1] = st.mtype
+            if st.ptype ~= "" then
+                this.craft.newAlternativeMachineType(st.mtype, st.ptype, st.slots, st.output)
+            else
+                this.craft.newMachineType(st.mtype, st.slots, st.output)
+            end
         end
         registeredMachines = {}
         for i, v in ipairs(smachines) do
             local m = unserializeMachine(v)
-            registeredMachines[m.name] = m
+            this.craft.registerMachine(m.mtype, m.name, m.invs)
         end
         registeredRecipes = {}
         for i, v in ipairs(sreps) do
             local r = unserializeRecipe(v)
-            registeredRecipes[r.product] = registeredRecipes[r.product] or {}
-            local recipes = registeredRecipes[r.product]
-            recipes[#recipes + 1] = r
+            this.craft.registerRecipe(r.type, r.items, r.recipe, r.product, r.produces)
         end
     end
     this.craft.loadRecipes = loadRecipes
@@ -792,20 +795,23 @@ function lib.wrap(invList, wmodem)
     ---@param round (fun(n:integer):integer)? Round to most efficient processing interval
     ---@param process MachineProcess? Function ran alongside item i/o functions
     function this.craft.newMachineType(mtype, slotmap, outputSlot, round, process)
-        if not registeredMachineTypes[mtype] then
-            local idx = #machineTypeList + 1
-            machineTypeList[idx] = mtype
-            registeredMachineTypes[mtype] = {
-                slots = slotmap,
-                output = outputSlot,
-                round = round,
-                process = process,
-                id = idx,
-                mtype = mtype,
-            }
-            busyMachines[mtype] = {}
-            freeMachines[mtype] = {}
+        local idx
+        if registeredMachineTypes[mtype] then
+            idx = registeredMachineTypes[mtype].id
+        else
+            idx = #machineTypeList + 1
         end
+        machineTypeList[idx] = mtype
+        registeredMachineTypes[mtype] = {
+            slots = slotmap,
+            output = outputSlot,
+            round = round,
+            process = process,
+            id = idx,
+            mtype = mtype,
+        }
+        busyMachines[mtype] = busyMachines[mtype] or {}
+        freeMachines[mtype] = freeMachines[mtype] or {}
     end
 
     ---Add a machine with the type mtype, which handles crafting via ptype recipes
@@ -994,6 +1000,7 @@ function lib.wrap(invList, wmodem)
             end
         end
     end
+    this.craft.loadRecipes()
     registerFurnaces()
 
     ---Start this wrapper's coroutine
