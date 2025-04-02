@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-field
 local expect = require("cc.expect").expect
 
 local Item = {}

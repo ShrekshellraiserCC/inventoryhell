@@ -114,6 +114,12 @@ function clientlib.getFragMap()
     return sendAndRecieve({ type = "getFragMap", side = "client" })[1]
 end
 
+---Remove an inventory from the system's cache
+---@param inv string
+function clientlib.removeInventory(inv)
+    return sendAndRecieve({ type = "removeInventory", side = "client", inv = inv })
+end
+
 ---Push items into some inventory
 ---@param to string
 ---@param item ItemDescriptor

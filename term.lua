@@ -33,7 +33,8 @@ end
 
 clientlib.setLogger(tlib.log)
 clientlib.open()
-local lname = clientlib.modem.getNameLocal()
+local lname = turtle and clientlib.modem.getNameLocal()
+local invName = sset.get(sset.termInventory)
 
 function tlib.hideAllWin()
     for n, v in pairs(tlib.win) do
@@ -47,23 +48,44 @@ local debounceDelay = sset.get(sset.debounceDelay)
 local debounceTid = os.startTimer(debounceDelay)
 
 ---@type table<number,boolean>
-local lockedSlots = {}
+local lockedTurtleSlots = {}
+---@type table<number,boolean>
+local lockedExternalSlots = {}
 
-local function lockUsedSlots()
+local function lockUsedTurtleSlots()
     if not turtle then return end
     for i = 1, 16 do
-        lockedSlots[i] = turtle.getItemCount(i) > 0
+        lockedTurtleSlots[i] = turtle.getItemCount(i) > 0
     end
 end
 
-local function emptyInventory()
-    if not turtle then return end
+local function emptyTurtleInventory()
     for i = 1, 16 do
         local c = turtle.getItemCount(i)
-        if not lockedSlots[i] and c > 0 then
+        if not lockedTurtleSlots[i] and c > 0 then
             clientlib.pullItems(lname, i)
-        elseif lockedSlots[i] and c == 0 then
-            lockedSlots[i] = false
+        elseif lockedTurtleSlots[i] and c == 0 then
+            lockedTurtleSlots[i] = false
+        end
+    end
+end
+
+local function lockUsedExternalSlots()
+    local list = peripheral.call(invName, "list")
+    local size = peripheral.call(invName, "size")
+    for i = 1, size do
+        lockedExternalSlots[i] = list[i] ~= nil
+    end
+end
+
+local function emptyExternalInventory()
+    local list = peripheral.call(invName, "list")
+    local size = peripheral.call(invName, "size")
+    for i = 1, size do
+        if not lockedExternalSlots[i] and list[i] then
+            clientlib.pullItems(invName, i)
+        elseif lockedExternalSlots[i] and not list[i] then
+            lockedExternalSlots[i] = false
         end
     end
 end
@@ -143,8 +165,15 @@ do
         local want = ui.getItemCount(mainWindow, v)
         if not want then return end
         expectingItems = true
-        clientlib.pushItems(lname, ID.fromName(v.name, v.nbt), want)
-        lockUsedSlots()
+        local target = invName or lname
+        if target then
+            clientlib.pushItems(target, ID.fromName(v.name, v.nbt), want)
+            if invName then
+                lockUsedExternalSlots()
+            else
+                lockUsedTurtleSlots()
+            end
+        end
         expectingItems = false
     end, { true }, nil, { "r" })
     local reread = ui.reread(tlib.win.input, 3, 1, w - 2)
@@ -227,11 +256,11 @@ do
     registerUI("Log", render, onEvent)
 end
 
-local function emptyThread()
+local function emptyTurtleThread()
     while true do
         local e = table.pack(os.pullEvent())
         if e[1] == "timer" and e[2] == debounceTid then
-            emptyInventory()
+            emptyTurtleInventory()
         end
     end
 end
@@ -245,28 +274,57 @@ local function render()
     tlib.win.main.setVisible(true)
 end
 
+local function turtleInventoryPoll()
+    while true do
+        os.pullEvent("turtle_inventory")
+        if not expectingItems then
+            os.cancelTimer(debounceTid)
+            debounceTid = os.startTimer(debounceDelay)
+        end
+    end
+end
+
 local function main()
     while true do
         render()
         local e = table.pack(os.pullEvent())
         if not activeUI.onEvent(e, tlib) then
-            if e[1] == "turtle_inventory" and not expectingItems then
-                os.cancelTimer(debounceTid)
-                debounceTid = os.startTimer(debounceDelay)
-            elseif e[1] == "key" and e[2] == keys.tab then
+            if e[1] == "key" and e[2] == keys.tab then
                 setUI("main")
             end
         end
     end
 end
 local function init()
+    if invName then
+        clientlib.removeInventory(invName)
+    end
     tlib.fullList = clientlib.list()
     tlib.fragMap = clientlib.getFragMap()
     tlib.log("Client Init Done")
 end
 
+if turtle then
+    scheduler.queueTask(STL.Task.new({
+        turtleInventoryPoll,
+        emptyTurtleThread
+    }, "Turtle"))
+end
+local function externalInventoryPoll()
+    while true do
+        sleep(sset.get(sset.termInventoryPoll))
+        emptyExternalInventory()
+    end
+end
+
+if invName then
+    scheduler.queueTask(STL.Task.new({
+        externalInventoryPoll
+    }, "External I/O"))
+end
+
 scheduler.queueTask(STL.Task.new({
-    main, emptyThread,
+    main,
     clientlib.run, sset.checkForChangesThread, init,
     function()
         clientlib.subscribeToChanges(function(l, fm)

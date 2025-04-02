@@ -81,6 +81,9 @@ local function parseMessage(msg)
         os.reboot()
     elseif msg.type == "listThreads" then
         return inv.scheduler.list()
+    elseif msg.type == "removeInventory" then
+        inv.reserve:removeInventory(msg.inv)
+        return true
     end
 end
 

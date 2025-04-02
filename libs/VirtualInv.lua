@@ -702,6 +702,33 @@ function VirtualInv__index:_calculateTotals(itemCoord)
     ritem.count = totalVirtualCount
 end
 
+---Remove an inventory from this VirtualInventory
+---@param inv string
+function VirtualInv__index:removeInventory(inv)
+    local coords = {}
+    for i = 1, invCall(inv, "size") do
+        local icoord = coordLib.InventoryCoordinate(inv, i)
+        self:_emptySlot(icoord)
+        self.ess.clear(icoord)
+        coords[icoord] = true
+    end
+    for i = #self.realSlotList, 1, -1 do
+        if coords[self.realSlotList[i]] then
+            table.remove(self.realSlotList, i)
+        end
+    end
+end
+
+---Add an inventory to this VirtualInventory and scan it
+---@param inv string
+function VirtualInv__index:addInventory(inv)
+    local slots = {}
+    for i = 1, invCall(inv, "size") do
+        slots[i] = i
+    end
+    self:_scanInv(inv, { [inv] = slots })
+end
+
 ---Set the contents of a real slot directly
 ---@param invCoord InventoryCoordinate
 ---@param itemCoord ItemCoordinate?
@@ -990,6 +1017,7 @@ function Reserve.emptySlotStorage(slotlist)
     end
 
     ---Mark a slot as NOT being free
+    ---@param s InventoryCoordinate
     function ess__index.clear(s)
         slots[s] = nil
     end

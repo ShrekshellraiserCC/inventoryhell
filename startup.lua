@@ -11,4 +11,6 @@ elseif prog == "term" then
 elseif prog == "host+term" then
     shell.run("bg", "disk/host")
     shell.run("disk/term")
+else
+    shell.run("disk/setup")
 end

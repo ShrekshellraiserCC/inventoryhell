@@ -66,11 +66,53 @@ local function main()
         render()
         local e = table.pack(os.pullEvent())
         if not activeUI.onEvent(e, tlib) then
+            if e[1] == "key" and e[2] == keys.tab then
+                setUI("Setup")
+            end
         end
     end
 end
 
 loadfile("disk/tplugins/settings.lua", "t", _ENV)()(tlib)
-setUI("Settings")
+do
+    local options = {}
+    local bootOptions = {
+        Host = "host",
+        ["Host + Term"] = "host+term",
+        Term = "term",
+        Crafter = "crafter"
+    }
+    local hostOptions = {
+        Host = true,
+        ["Host + Term"] = true
+    }
+    local hostExists = sset.get(sset.hid)
+    if not hostExists then
+        options[#options + 1] = "Host"
+        options[#options + 1] = "Host + Term"
+    end
+    options[#options + 1] = "Term"
+    if turtle then
+        options[#options + 1] = "Crafter"
+    end
+
+    options[#options + 1] = "Edit Settings"
+    local wrap = ui.tableGuiWrapper(tlib.win.main,
+        options, function(v)
+            return { v }
+        end, { "Setup" }, function(i, v)
+            if v == "Edit Settings" then
+                setUI("Settings")
+            elseif bootOptions[v] then
+                sset.set(sset.program, bootOptions[v])
+                if hostOptions[v] then
+                    sset.set(sset.hid, os.getComputerID())
+                end
+                os.reboot()
+            end
+        end)
+    registerUI("Setup", wrap.draw, wrap.onEvent)
+end
+setUI("Setup")
 
 main()

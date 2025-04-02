@@ -227,6 +227,10 @@ sset.hid = registerSetting("boot:hid", "Storage Host ID", "number", nil, true, "
 sset.hideExtra = registerSetting("term:hideExtra", "Hide NBT and other data", "boolean", true, true)
 sset.debounceDelay = registerSetting("term:debounceDelay", "Debounce turtle_inventory by waiting this long.", "number",
     0.2, true)
+sset.termInventory = registerSetting("term:inventory", "Which inventory to use for I/O for this term.", "string", nil,
+    true, "local")
+sset.termInventoryPoll = registerSetting("term:inventoryPoll",
+    "How frequently to poll the configured inventory for changes", "number", 1, true, "local")
 
 sset.scrollDelay = registerSetting("ui:scrollDelay", "Horizontal Text Scrolling Delay", "number", 0.15, true)
 
