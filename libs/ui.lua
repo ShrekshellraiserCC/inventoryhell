@@ -2,6 +2,7 @@ local ui          = {}
 
 local sset        = require("libs.sset")
 local scrollDelay = sset.get(sset.scrollDelay)
+local shrexpect   = require("libs.shrexpect")
 
 -- Credit to Sammy for this palette
 local GNOME       = {
@@ -149,6 +150,10 @@ end
 ---@param align table<integer,"r">
 ---@return integer start
 local function drawTable(win, t, selected, start, getStr, columns, tick, lockWidth, align)
+    shrexpect(
+        { "table", "table", "number?", "number?", "function", "string[]", "number", "table?", "table" },
+        { win, t, selected, start, getStr, columns, tick, lockWidth, align }
+    )
     lockWidth = lockWidth or {}
     local w, h = win.getSize()
     w = w - 1
@@ -263,7 +268,10 @@ ui.drawTable = drawTable
 ---@param lockWidth table<integer,boolean>?
 ---@param unlockMouse boolean?
 ---@param align table<integer,"r">?
+---@return TableGUIWrapper
 local function tableGuiWrapper(win, t, getStr, columns, onSelect, lockWidth, unlockMouse, align)
+    shrexpect({ "table", "table", "function", "string[]", "function", "boolean[]?", "boolean?", "string[]?" },
+        { win, t, getStr, columns, onSelect, lockWidth, unlockMouse, align })
     local selected = 1
     local start = 1
     local tick = 0
@@ -274,8 +282,10 @@ local function tableGuiWrapper(win, t, getStr, columns, onSelect, lockWidth, unl
         selected = math.max(1, math.min(selected, #t))
         start = math.max(1, math.min(start, #t))
     end
+    ---@class TableGUIWrapper
     local wrapper = {}
     function wrapper.setTable(nt)
+        shrexpect({ "table" }, { nt })
         t = nt
         wrapBounds()
     end
@@ -285,6 +295,10 @@ local function tableGuiWrapper(win, t, getStr, columns, onSelect, lockWidth, unl
         tick = 0
         os.cancelTimer(tid)
         tid = os.startTimer(scrollDelay)
+    end
+
+    function wrapper.getTable()
+        return t
     end
 
     function wrapper.onEvent(e)
@@ -837,6 +851,53 @@ function ui.changeSetting(win, s)
         end
     end
     ui.color(win, ui.colmap.listFg, ui.colmap.listBg)
+end
+
+---Create a searchable tableGUIWrapper
+---@param win Window
+---@param lwin Window
+---@param iwin Window
+---@generic T
+---@param filter fun(t:T[],s:string):T[]
+---@param wrap TableGUIWrapper
+function ui.searchableTableGUIWrapper(win, lwin, iwin, filter, wrap)
+    local w, h        = win.getSize()
+    local rer         = ui.reread(iwin, 3, 1, w - 2)
+    local oldSetTable = wrap.setTable
+    local oldDraw     = wrap.draw
+    local oldOnEvent  = wrap.onEvent
+    function wrap.draw()
+        oldDraw()
+        ui.preset(iwin, ui.presets.input)
+        iwin.clear()
+        ui.preset(iwin, ui.presets.footer)
+        ui.cursor(iwin, 1, 1)
+        iwin.write(ui.icons.back)
+        ui.preset(iwin, ui.presets.input)
+        iwin.write(">")
+        rer:render()
+        lwin.setVisible(true)
+        iwin.setVisible(true)
+    end
+
+    local t = wrap.getTable()
+
+    function wrap.setTable(nt)
+        t = nt
+        oldSetTable(filter(t, rer.buffer))
+    end
+
+    function wrap.onEvent(e)
+        if oldOnEvent(e) then
+            return true
+        end
+        if rer:onEvent(e) then
+            oldSetTable(filter(t, rer.buffer))
+            return true
+        end
+    end
+
+    return wrap
 end
 
 return ui

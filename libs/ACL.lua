@@ -4,6 +4,7 @@
 local lib            = {}
 local ItemDescriptor = require("libs.ItemDescriptor")
 local shrexpect      = require("libs.shrexpect")
+local sset           = require("libs.sset")
 
 local TaskLib        = require("libs.STL")
 
@@ -258,6 +259,7 @@ function lib.wrap(invList, wmodem)
     local registeredMachines = {}
 
     ---@class RegisteredRecipe
+    ---@field id integer
     ---@field type "grid"|string machine type
     ---@field items ItemDescriptor[]
     ---@field recipe table<integer,integer|{[1]:integer,[2]:integer}>
@@ -271,9 +273,11 @@ function lib.wrap(invList, wmodem)
         slots = {},
         mtype = "grid"
     }
+    local lastRecipeID = 0
     ---@type table<ItemCoordinate,RegisteredRecipe[]>
     local registeredRecipes = {}
-
+    ---@type RegisteredRecipe[]
+    local recipesByID = {}
 
     this.craft = {}
     ---@type string[]
@@ -438,7 +442,7 @@ function lib.wrap(invList, wmodem)
         local start, finish = s:find(firstPattern)
         local productID, rtype, produces, itemCount = s:match(firstPattern)
         local idx = finish + 1
-        ---@type RegisteredRecipe
+        lastRecipeID = lastRecipeID + 1
         local r = {
             items = {},
             produces = tonumber(produces),
@@ -480,17 +484,24 @@ function lib.wrap(invList, wmodem)
         end
         return m
     end
-    local function saveToFile(fn, s)
-        local f = assert(fs.open(fn, "w"))
-        f.write(s)
+    local function saveFile(fn, s)
+        local path = fs.combine(sset.get(sset.recipeCacheDir), fn)
+        local t = textutils.serialize(s)
+        local f = assert(fs.open(path, "w"))
+        f.write(t)
         f.close()
     end
     local function readFromFile(fn)
-        local f = assert(fs.open(fn, "r"))
+        local path = fs.combine(sset.get(sset.recipeCacheDir), fn)
+        local f = assert(fs.open(path, "r"))
         local s = f.readAll()
         f.close()
-        return s
+        return textutils.unserialise(s)
     end
+    local recipeFN = "recipes.txt"
+    local machinesFN = "machines.txt"
+    local machineTypesFN = "machine_types.txt"
+    local itemCacheFN = "item_cache.txt"
     local function saveRecipes()
         local sreps = {}
         for ic, recipes in pairs(registeredRecipes) do
@@ -509,22 +520,26 @@ function lib.wrap(invList, wmodem)
             local sm = serializeMachineType(registeredMachineTypes[mt])
             stypes[#stypes + 1] = sm
         end
-        saveToFile("disk/recipes.txt", textutils.serialise(sreps))
-        saveToFile("disk/machines.txt", textutils.serialise(smachines))
-        saveToFile("disk/machine_types.txt", textutils.serialise(stypes))
-        saveToFile("disk/item_cache.txt", textutils.serialise(IDCacheList))
+        saveFile(recipeFN, sreps)
+        saveFile(machinesFN, smachines)
+        saveFile(machineTypesFN, stypes)
+        saveFile(itemCacheFN, IDCacheList)
     end
     this.craft.saveRecipes = saveRecipes
 
     local function loadRecipes()
-        local sreps = textutils.unserialise(readFromFile("disk/recipes.txt"))
-        IDCacheList = textutils.unserialise(readFromFile("disk/item_cache.txt"))
+        if not (fs.exists(recipeFN) and fs.exists(itemCacheFN)
+                and fs.exists(machinesFN) and fs.exists(machineTypesFN)) then
+            return
+        end
+        local sreps = readFromFile(recipeFN)
+        IDCacheList = readFromFile(itemCacheFN)
         IDCacheLUT = {}
         for i, v in ipairs(IDCacheList) do
             IDCacheLUT[v] = i
         end
-        local smachines = textutils.unserialise(readFromFile("disk/machines.txt"))
-        local stypes = textutils.unserialise(readFromFile("disk/machine_types.txt"))
+        local smachines = readFromFile(machinesFN)
+        local stypes = readFromFile(machineTypesFN)
         registeredMachineTypes = {}
         machineTypeList = {}
         freeMachines = {}
@@ -556,17 +571,22 @@ function lib.wrap(invList, wmodem)
     ---@param recipe integer[]|{[1]:integer,[2]:integer}[]
     ---@param product ItemCoordinate
     ---@param produces integer
+    ---@return integer recipeID
     function this.craft.registerRecipe(mtype, items, recipe, product, produces)
+        lastRecipeID = lastRecipeID + 1
         ---@type RegisteredRecipe
         local r = {
+            id = lastRecipeID,
             items = items,
             type = mtype,
             recipe = recipe,
             product = product,
             produces = produces,
         }
+        recipesByID[lastRecipeID] = r
         registeredRecipes[product] = registeredRecipes[product] or {}
         table.insert(registeredRecipes[product], r)
+        return lastRecipeID
     end
 
     ---@param recipe RegisteredRecipe
@@ -632,10 +652,14 @@ function lib.wrap(invList, wmodem)
     ---@param item ItemDescriptor|ItemCoordinate
     ---@param count integer
     ---@param itemCounts table<string,integer>?
+    ---@param alternative integer?
     ---@return MachineCraftTask|TurtleCraftTask?
     ---@return table<string,integer> ItemDescriptor string, integer
-    function this.craft.craft(item, count, itemCounts)
+    function this.craft.craft(item, count, itemCounts, alternative)
+        shrexpect({ "string", "number", "table<string,number>?", "number?" },
+            { item, count, itemCounts, alternative })
         itemCounts = itemCounts or {}
+        alternative = alternative or 1
         if type(item) == "table" and item:toCoord() then
             item = item:toCoord()
         end
@@ -650,10 +674,12 @@ function lib.wrap(invList, wmodem)
             task, craftCount = tryCraft(v, count, craftCount)
             if task then
                 craftOptions[#craftOptions + 1] = craftCount
-                break -- this is where to TODO that TODO
+                if #craftOptions == alternative then
+                    break
+                end
             end
         end
-        return task, craftOptions[1]
+        return task, craftOptions[(alternative - 1) % #craftOptions + 1]
     end
 
     local turtleSlotList = { 1, 2, 3, 5, 6, 7, 9, 10, 11 }
@@ -1002,6 +1028,31 @@ function lib.wrap(invList, wmodem)
     end
     this.craft.loadRecipes()
     registerFurnaces()
+
+    ---@class RecipeInfo
+    ---@field name string
+    ---@field displayName string?
+    ---@field coord ItemCoordinate
+    ---@field type string
+
+    ---@return RecipeInfo[]
+    function this.craft.listRecipes()
+        ---@type RecipeInfo[]
+        local r = {}
+        local coordLib = require("libs.Coordinates")
+        for i, v in pairs(registeredRecipes) do
+            local name, nbt = coordLib.splitItemCoordinate(i)
+            for _, recipe in ipairs(v) do
+                r[#r + 1] = {
+                    name = name,
+                    coord = i,
+                    type = recipe.type,
+                    displayName = this.reserve:getDisplayName(name)
+                }
+            end
+        end
+        return r
+    end
 
     ---Start this wrapper's coroutine
     ---Does not return, run this in parallel (or another coroutine manager)

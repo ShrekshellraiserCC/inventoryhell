@@ -86,6 +86,8 @@ local function sendAndRecieve(msg)
             elseif response.type == "ACK" and response.ftype == msg.type then
                 gotAck = true
                 log("Got ACK for %d", id)
+            elseif response.type == "ERROR" then
+                error(("Got error from server while processing request:\n%s"):format(response.error))
             end
         elseif sender == nil then
             tries = tries + 1
@@ -106,6 +108,12 @@ end
 ---@return CCItemInfo[]
 function clientlib.list()
     return sendAndRecieve({ type = "list", side = "client" })[1]
+end
+
+---List out the Recipes this storage has
+---@return RecipeInfo[]
+function clientlib.listRecipes()
+    return sendAndRecieve({ type = "listRecipes", side = "client" })[1]
 end
 
 ---Get the usage of each real slot in the inventory as a percentage [0,1]. Non-stackable items have a value of 2.

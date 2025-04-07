@@ -31,59 +31,51 @@ local info = inv.reserve:getSlotInfo()
 print(("Storage initialized %d used (of %d total) slots in %.2f seconds")
     :format(info.used, info.total, initTime / 1000))
 
----Try to call a function, returns nil on error
----@param f function
----@param args {[integer]:any,n:integer}?
----@param self boolean
-local function tryCall(f, args, self)
-    args = args or {}
-    local pf
-    if self then
-        pf = function()
-            return f(f, table.unpack(args, 1, args.n))
-        end
-    else
-        pf = function()
-            return f(table.unpack(args, 1, args.n))
-        end
-    end
-    local result = table.pack(pcall(pf))
-    if not result[1] then
-        error(result[2])
-    end
-    return table.unpack(result, 2, result.n)
+
+local messageHandlers = {}
+
+local function registerMessageHandler(type, handle)
+    messageHandlers[type] = handle
 end
+registerMessageHandler("list", function(msg)
+    return inv.reserve:list()
+end)
+registerMessageHandler("getFragMap", function(msg)
+    return inv.reserve:getFragMap()
+end)
+registerMessageHandler("pushItems", function(msg)
+    return inv.reserve:pushItems(
+        msg.to,
+        ID.unserialize(msg.item),
+        msg.limit,
+        msg.toSlot)
+end)
+registerMessageHandler("pullItems", function(msg)
+    return inv.reserve:pullItems(msg.from, msg.slot, msg.limit)
+end)
+registerMessageHandler("rebootAll", function(msg)
+    os.reboot()
+end)
+registerMessageHandler("listThreads", function(msg)
+    return inv.scheduler.list()
+end)
+registerMessageHandler("removeInventory", function(msg)
+    inv.reserve:removeInventory(msg.inv)
+    return true
+end)
+registerMessageHandler("listRecipes", function(msg)
+    return inv.craft.listRecipes()
+end)
+registerMessageHandler("addRecipe", function()
+
+end)
 
 ---@param msg table
 local function parseMessage(msg)
     if type(msg) ~= "table" then return end
     if msg.side == "server" then return end
-    if msg.type == "list" then
-        return inv.reserve:list()
-    elseif msg.type == "getFragMap" then
-        return inv.reserve:getFragMap()
-    elseif msg.type == "pushItems" then
-        -- return tryCall(inv.reserve.pushItems, msg.args, true)
-        return inv.reserve:pushItems(
-            msg.to,
-            ID.unserialize(msg.item),
-            msg.limit,
-            msg.toSlot)
-        -- return tryCall(inv.reserve.pushItems, {
-        --     msg.to,
-        --     ID.unserialize(msg.item),
-        --     msg.limit,
-        --     msg.toSlot
-        -- }, true)
-    elseif msg.type == "pullItems" then
-        return inv.reserve:pullItems(msg.from, msg.slot, msg.limit)
-    elseif msg.type == "rebootAll" then
-        os.reboot()
-    elseif msg.type == "listThreads" then
-        return inv.scheduler.list()
-    elseif msg.type == "removeInventory" then
-        inv.reserve:removeInventory(msg.inv)
-        return true
+    if messageHandlers[msg.type] then
+        return pcall(messageHandlers[msg.type], msg)
     end
 end
 
@@ -117,15 +109,27 @@ local function processMessageThread()
     while true do
         local msg = table.remove(messageQueue, 1)
         if msg then
-            local response = table.pack(parseMessage(msg.message))
-            if msg.message and #response > 0 then
-                rednet.send(msg.sender, {
-                        result = response,
-                        type = msg.message.type,
+            local result = table.pack(parseMessage(msg.message))
+            if #result > 0 then
+                local response = table.pack(table.unpack(result, 2))
+                if result[1] then
+                    rednet.send(msg.sender, {
+                            result = response,
+                            type = msg.message.type,
+                            side = "server",
+                            id = msg.message.id
+                        },
+                        protocol)
+                else
+                    rednet.send(msg.sender, {
+                        type = "ERROR",
+                        error = result[2],
                         side = "server",
                         id = msg.message.id
-                    },
-                    protocol)
+                    }, protocol)
+                    print(("Error processing client request %s.\n%s")
+                        :format(textutils.serialise(msg.message), result[2]))
+                end
             end
         else
             os.pullEvent(messageQueuedEvent)

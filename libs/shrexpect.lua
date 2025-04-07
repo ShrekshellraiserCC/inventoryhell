@@ -43,24 +43,11 @@ end
 ---@return boolean
 function typesMatch(a, b)
     if a == b then return true end
-    if a:match("%[%]$") then
+    if a:match("%[%]%??$") then
         if b == "table" then
             return true
         elseif b:match("^table%[%]") then
             return typesMatch(a:sub(1, #a - 2), b:sub(1, #b - 2))
-        end
-    end
-    return false
-end
-
----Check if a value is in a given array
----@param t string[]
----@param v string
----@return boolean
-local function isTypeIn(t, v)
-    for i, v2 in ipairs(t) do
-        if typesMatch(v, v2) then
-            return true
         end
     end
     return false
@@ -87,7 +74,7 @@ end
 local function checkType(expected, actual)
     local types = split(expected)
     for i, v in ipairs(types) do
-        if typesMatch(v, actual) then
+        if typesMatch(actual, v) then
             return true
         end
     end

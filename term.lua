@@ -238,7 +238,7 @@ tlib.registerUI = registerUI
 local function loadPlugins(dir)
     local list = fs.list(dir)
     for i, v in ipairs(list) do
-        print("Loading Plugin:", v)
+        tlib.log("Loading Plugin: %s", v)
         loadfile(fs.combine(dir, v), "t", _ENV)()(tlib)
     end
 end
