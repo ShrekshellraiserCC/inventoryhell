@@ -176,6 +176,7 @@ local function Scheduler()
     ---@type table<TaskID,number>
     local taskMovedItems = {}
     local run = {}
+    local needsSorted = false
 
     ---Add a thread to the queuedTasks
     ---@param t TaskThreadDescriptor
@@ -211,6 +212,7 @@ local function Scheduler()
         for _, v in ipairs(threads) do
             queue(v)
         end
+        needsSorted = true
     end
 
     ---Check if the depends of a task are met
@@ -257,10 +259,19 @@ local function Scheduler()
         return taskThreadWidth[t.id]
     end
 
+    local function sort()
+        table.sort(queuedThreads, function(a, b)
+            if a.priority == b.priority then
+                return a.id < b.id
+            end
+            return a.priority > b.priority
+        end)
+    end
+
     local function getTaskCount()
         local count = 0
         for k, v in pairs(taskThreadCounts) do
-            if v > 0 then
+            if v > 0 and runningTasks[k] then
                 count = count + taskThreadWidth[k]
             end
         end
@@ -269,12 +280,10 @@ local function Scheduler()
 
     ---Pull ready-to-execute tasks from the queue
     local function pollQueue()
-        table.sort(queuedThreads, function(a, b)
-            if a.priority == b.priority then
-                return a.id < b.id
-            end
-            return a.priority > b.priority
-        end)
+        if needsSorted then
+            sort()
+            needsSorted = false
+        end
         local taskCount = getTaskCount()
         ---@type number[]
         local toAdd = {}
