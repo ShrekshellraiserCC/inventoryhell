@@ -61,6 +61,52 @@ local function batchExecute(func, skipPartial, limit)
     return table.pack(table.unpack(func, 1 + limit * batches))
 end
 
+-- Credit to @FatBoyChummy
+-- Parallelism handler: parallelizes certain peripheral calls.
+local function newParallelismHandler(limit)
+    ---@class ParallelismHandler
+    local parallelismHandler = {
+        tasks = {},
+        limit = limit or 128,
+        n = 0
+    }
+
+    --- Add a task to the parallelism handler.
+    --- This method respects the task limit, and will execute the tasks if the limit is reached.
+    ---@param task function The task to add.
+    ---@param ... any The arguments to pass to the task
+    function parallelismHandler:addTask(task, ...)
+        self.n = self.n + 1
+        self.tasks[self.n] = {
+            task = task,
+            args = table.pack(...),
+        }
+
+        if self.n >= self.limit then
+            self:execute()
+        end
+    end
+
+    --- Execute all tasks in parallel.
+    function parallelismHandler:execute()
+        local _tasks = {}
+        local _results = {}
+        for i, task in ipairs(self.tasks) do
+            _tasks[i] = function()
+                _results[i] = task.task(table.unpack(task.args, 1, task.args.n))
+            end
+        end
+
+        self.tasks = {}
+        self.n = 0
+        parallel.waitForAll(table.unpack(_tasks))
+        return _results
+    end
+
+    return parallelismHandler
+end
+
+
 ---@alias InventoryCompatible string
 
 ---@param inv InventoryCompatible
@@ -76,7 +122,7 @@ end
 local function invGetItemDetail(inv, slot)
     local detail
     repeat
-        local tid = os.startTimer(math.random() * 3)
+        local tid = os.startTimer(0.5)
         parallel.waitForAny(function()
             detail = invCall(inv, "getItemDetail", slot)
         end, function()
@@ -757,10 +803,9 @@ function VirtualInv__index:addInventory(inv)
     for i = 1, invCall(inv, "size") do
         slots[i] = i
     end
-    local funcs = self:_scanInvFuncs(inv, { [inv] = slots })
-    for _, f in ipairs(funcs) do
-        f()
-    end
+    local executor = newParallelismHandler(1)
+    self:_scanInv(inv, invCall(inv, "list"), slots, executor)
+    executor:execute()
 end
 
 ---Set the contents of a real slot directly
@@ -858,33 +903,48 @@ function VirtualInv__index:getDisplayName(name)
     return displayNameCache[name]
 end
 
+---Initialize an empty tracker
+---@return ScanTracker
+local function defaultTracker()
+    ---@class ScanTracker
+    ---@field totalInvs integer
+    ---@field invsScanned integer
+    ---@field totalSlots integer
+    ---@field slotsScanned integer
+    return {
+        totalInvs = 0,
+        invsScanned = 0,
+        totalSlots = 0,
+        slotsScanned = 0
+    }
+end
+
 ---Scan a given inventory
 ---@param inv string
----@param slots table<string,number[]>
----@param funcs function[]?
----@param tracker {[1]:integer}?
----@return function[]
-function VirtualInv__index:_scanInvFuncs(inv, slots, funcs, tracker)
-    funcs = funcs or {}
-    tracker = tracker or { 0 }
+---@param list table<integer,CCItemInfo>
+---@param slots number[]
+---@param executor ParallelismHandler
+---@param tracker ScanTracker?
+function VirtualInv__index:_scanInv(inv, list, slots, executor, tracker)
+    tracker = tracker or defaultTracker()
     local list = peripheral.call(inv, "list")
-    for _, i in ipairs(slots[inv]) do
+    for _, i in ipairs(slots) do
         local coord = coordLib.InventoryCoordinate(inv, i)
         if list[i] then
-            tracker[1] = tracker[1] + 1
             local f = function()
                 self:_setScanLock(inv)
                 local itemCoord = coordLib.ItemCoordinate(list[i].name, list[i].nbt)
                 self:_setSlot(coord, itemCoord, list[i].count)
                 self:_freeScanLock(inv)
-                tracker[1] = tracker[1] - 1
+                tracker.slotsScanned = tracker.slotsScanned + 1
             end
-            funcs[#funcs + 1] = f
+            executor:addTask(f)
         else
+            tracker.slotsScanned = tracker.slotsScanned + 1
             self:_setSlot(coord, nil, 0)
         end
     end
-    return funcs
+    tracker.invsScanned = tracker.invsScanned + 1
 end
 
 local function log(verbose, s, ...)
@@ -893,70 +953,71 @@ local function log(verbose, s, ...)
     end
 end
 
+local scanRatio = 3
+local scanMax = 128
 ---Get a list of functions to call in parallel to scan this Reserve
 ---This uses multiple threads to list the contents of each inventory!
 ---@param verbose boolean?
----@param tracker {[1]:integer}?
----@return fun()[]
-function VirtualInv__index:getScanFuncs(verbose, tracker)
-    local f = {}
-    tracker = tracker or {}
+---@param tracker ScanTracker?
+function VirtualInv__index:executeScan(verbose, tracker)
+    tracker = tracker or defaultTracker()
     ---@type table<string,boolean>
     local inventories = {}
     ---@type table<string,number[]>
     local slotsPerInventory = {}
     for _, coord in ipairs(self.realSlotList) do
         local inv, slot = coordLib.splitInventoryCoordinate(coord)
+        if not inventories[inv] then
+            tracker.totalInvs = tracker.totalInvs + 1
+        end
+        tracker.totalSlots = tracker.totalSlots + 1
         inventories[inv] = true
         slotsPerInventory[inv] = slotsPerInventory[inv] or {}
         slotsPerInventory[inv][#slotsPerInventory[inv] + 1] = slot
     end
-    local slotF = {}
-    for inv in pairs(inventories) do
-        f[#f + 1] = function()
-            self:_scanInvFuncs(inv, slotsPerInventory, slotF, tracker)
-        end
-    end
-    log(verbose, ".list() Contents...")
+    log(verbose, "Scanning Contents...")
     local t0 = os.epoch("utc")
-    batchExecute(f, false, 128)
+    local slotExecutor = newParallelismHandler(math.floor(scanMax / scanRatio))
+    local invExecutor = newParallelismHandler(math.floor(scanRatio)) -- N invExecutor threads each executing M slotExecutor threads
+    for inv in pairs(inventories) do
+        invExecutor:addTask(function()
+            local list = invCall(inv, "list")
+            self:_scanInv(inv, list, slotsPerInventory[inv], slotExecutor, tracker)
+        end)
+    end
+    invExecutor:execute()
+    slotExecutor:execute()
     local t1 = os.epoch("utc")
     log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
-    return slotF
 end
 
 ---Scan all slots this VirtualInv covers
 function VirtualInv__index:scan(verbose)
-    local tracker = { 0 }
-    local f = self:getScanFuncs(verbose, tracker)
+    local tracker = defaultTracker()
 
-    local total = #f
     local function throbber()
         local t0 = os.epoch("utc")
         local _, y = term.getCursorPos()
-        while tracker[1] > 0 do
+        while true do
             local ox, oy = term.getCursorPos()
             term.setCursorPos(1, 1)
             term.clearLine()
             local t1 = os.epoch("utc")
-            local percentage = (total - tracker[1]) / total
+            local remaining = (tracker.totalSlots - tracker.slotsScanned)
+            local percentage = tracker.slotsScanned / tracker.totalSlots
             local eta = (t1 - t0) * (1 / (percentage) - 1)
             term.setTextColor(colors.white)
-            log(verbose, "%d slots remain (%.2f%%). ETA: %.2fs", tracker[1], percentage * 100, eta / 1000)
+            log(verbose, "%d slots remain (%.2f%%). ETA: %.2fs", remaining, percentage * 100, eta / 1000)
             term.setCursorPos(ox, oy)
             sleep(0.2)
         end
-        local t1 = os.epoch("utc")
-        term.setCursorPos(1, y)
-        term.clearLine()
-        log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
     end
     local function run()
-        batchExecute(f, false, 128)
+        self:executeScan(verbose, tracker)
     end
     log(verbose, "Detailed Cache Build...")
     if verbose then
-        parallel.waitForAll(throbber, run)
+        parallel.waitForAny(throbber, run)
     else
         run()
     end
