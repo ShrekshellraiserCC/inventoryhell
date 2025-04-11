@@ -32,16 +32,17 @@ local tracker = VirtualInv.defaultTracker()
 local inv
 
 local w, h = term.getSize()
+ui.loadTheme(sset.get(sset.theme))
 ui.applyPallete(term)
 local headWin = window.create(term.current(), 1, 1, w, 1)
-local logWin = window.create(term.current(), 1, 2, w, h - 3)
+local logWin = window.create(term.current(), 1, 2, w, h - 2)
 local footerWin = window.create(term.current(), 1, h, w, 1)
 
 ui.preset(headWin, ui.presets.header)
 ui.preset(logWin, ui.presets.list)
 ui.preset(footerWin, ui.presets.footer)
-term.clear()
-term.setCursorPos(1, 1)
+logWin.clear()
+logWin.setCursorPos(1, 1)
 term.redirect(logWin)
 
 ui.header(headWin, "ShrekStorageDrive INDEV")

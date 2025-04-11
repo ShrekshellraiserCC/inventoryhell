@@ -4,6 +4,8 @@ local sset = require("libs.sset")
 local STL = require("libs.STL")
 local scheduler = STL.Scheduler()
 local ui = require("libs.ui")
+
+ui.loadTheme(sset.get(sset.theme))
 ui.applyPallete(term)
 
 

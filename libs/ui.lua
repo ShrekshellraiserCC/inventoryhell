@@ -1,40 +1,80 @@
-local ui          = {}
+local ui             = {}
 
-local sset        = require("libs.sset")
-local scrollDelay = sset.get(sset.scrollDelay)
-local shrexpect   = require("libs.shrexpect")
+local sset           = require("libs.sset")
+local scrollDelay    = sset.get(sset.scrollDelay)
+local shrexpect      = require("libs.shrexpect")
 
--- Credit to Sammy for this palette
-local GNOME       = {
-    ["black"]     = 0x171421,
-    ["blue"]      = 0x2A7BDE,
-    ["brown"]     = 0xA2734C,
-    ["cyan"]      = 0x2AA1B3,
-    ["gray"]      = 0x5E5C64,
-    ["green"]     = 0x26A269,
-    ["lightBlue"] = 0x33C7DE,
-    ["lightGray"] = 0xD0CFCC,
-    ["lime"]      = 0x33D17A,
-    ["magenta"]   = 0xC061CB,
-    ["orange"]    = 0xE9AD0C,
-    ["pink"]      = 0xF66151,
-    ["purple"]    = 0xA347BA,
-    ["red"]       = 0xC01C28,
-    ["white"]     = 0xFFFFFF,
-    ["yellow"]    = 0xF3F03E
-}
-
-function ui.applyPallete(dev)
-    for color, code in pairs(GNOME) do
-        dev.setPaletteColor(colors[color], code)
+local defaultPalette = {}
+for k, v in pairs(colors) do
+    if type(v) == "number" then
+        defaultPalette[k] = colors.packRGB(term.nativePaletteColor(v))
     end
 end
+local themePalette  = defaultPalette
+local defaultColmap = {
+    headerBg = colors.blue,
+    headerFg = colors.white,
+    listBg = colors.black,
+    listFg = colors.white,
+    selectedBg = colors.orange,
+    selectedFg = colors.black,
+    inputBg = colors.lightGray,
+    inputFg = colors.black,
+    footerBg = colors.gray,
+    footerFg = colors.white,
+    errorFg = colors.red,
+    fullColor = colors.blue,
+    partColor = colors.lightBlue,
+    emptyColor = colors.white,
+    nonStackColor = colors.red
+}
+local colmap        = defaultColmap
+ui.colmap           = colmap
 
-ui.icons = {
+local defaultIcons  = {
     up = "\30",
     down = "\31",
     back = "\27"
 }
+ui.icons            = defaultIcons
+
+local function applyTheme(theme)
+    theme.palette = theme.palette or {}
+    themePalette = {}
+    for k, v in pairs(defaultPalette) do
+        themePalette[k] = theme.palette[k] or v
+    end
+    theme.colmap = theme.colmap or {}
+    colmap = {}
+    for k, v in pairs(defaultColmap) do
+        colmap[k] = theme.colmap[k] or v
+    end
+    ui.colmap = colmap
+    theme.icons = theme.icons or {}
+    ui.icons = {}
+    for k, v in pairs(defaultIcons) do
+        ui.icons[k] = theme.icons[k] or v
+    end
+end
+
+function ui.loadTheme(fn)
+    local f = fs.open(fn, "r")
+    if not f then return false end
+    local s = f.readAll()
+    f.close()
+    local func = load(s, nil, nil, { colors = colors })
+    if not func then return false end
+    local theme = func()
+    if not theme then return false end
+    applyTheme(theme)
+    return true
+end
+
+function ui.applyPallete(dev)
+    for color, code in pairs(themePalette) do
+        dev.setPaletteColor(colors[color], code)
+    end
+end
 
 ---Set the colors of a device
 ---@param dev Window|term
@@ -89,25 +129,6 @@ function ui.clearLine(dev, y)
     dev.clearLine()
 end
 
-local colmap = {
-    headerBg = colors.blue,
-    headerFg = colors.white,
-    listBg = colors.black,
-    listFg = colors.white,
-    selectedBg = colors.orange,
-    selectedFg = colors.black,
-    inputBg = colors.lightGray,
-    inputFg = colors.black,
-    footerBg = colors.gray,
-    footerFg = colors.white,
-    errorFg = colors.red,
-    fullColor = colors.blue,
-    partColor = colors.lightBlue,
-    emptyColor = colors.white,
-    nonStackColor = colors.red
-}
-
-ui.colmap = colmap
 local function newPreset(name)
     return { name .. "Fg", name .. "Bg" }
 end

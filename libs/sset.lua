@@ -245,6 +245,7 @@ sset.recipeCacheDir = registerSetting("host:recipeCacheDir",
     "What directory should the recipes be saved in. WARNING: Make sure to save your recipes after changing this!",
     "string", "/", true, "global")
 
+sset.theme = registerSetting("theme", "Color theme to use for UIs", "string", "disk/themes/gnome.lua", true, "both")
 
 loadSettings()
 
