@@ -120,19 +120,7 @@ end
 ---@param slot integer
 ---@return CCItemInfo
 local function invGetItemDetail(inv, slot)
-    local detail
-    repeat
-        local tid = os.startTimer(0.5)
-        parallel.waitForAny(function()
-            detail = invCall(inv, "getItemDetail", slot)
-        end, function()
-            repeat
-            until select(2, os.pullEvent("timer")) == tid
-            print("getItemDetail timed out!")
-        end)
-        os.cancelTimer(tid)
-    until detail
-    return detail
+    return invCall(inv, "getItemDetail", slot)
 end
 
 ---Get the length of a given table
@@ -163,7 +151,6 @@ end
 ---@param itemCoord ItemCoordinate
 ---@param invCoord InventoryCoordinate?
 local function getItemDetailed(itemCoord, invCoord)
-    shrexpect({ "string", "string?" }, { itemCoord, invCoord })
     if detailedDataCache[itemCoord] then
         return clone(detailedDataCache[itemCoord])
     end
@@ -178,7 +165,7 @@ local function getItemDetailed(itemCoord, invCoord)
         local inv, slot = coordLib.splitInventoryCoordinate(invCoord)
         ---@type CCItemInfo
         local info = invGetItemDetail(inv, slot)
-        detailedDataCache[itemCoord] = info
+        detailedDataCache[itemCoord] = clone(info)
         detailedCacheLock[itemCoord] = nil
         -- Prioritize the displayName of items without NBT in the cache
         if info.nbt then
@@ -187,9 +174,15 @@ local function getItemDetailed(itemCoord, invCoord)
             displayNameCache[info.name] = info.displayName
         end
         os.queueEvent(cacheFinishEvent)
-        return clone(info)
+        return info
     end
     error(("getItemDetail, no invCoord, but itemCoord (%s) not in cache!"):format(itemCoord), 2)
+end
+
+local function log(verbose, s, ...)
+    if verbose then
+        print(s:format(...))
+    end
 end
 
 
@@ -363,13 +356,9 @@ end
 
 
 
---- TODO follow these rules when modifying the contents of the VirtualInv
---- - If a slot is *losing* items, predict the loss and update the total
---- - If a slot is *gaining* items, make no changes until after the transaction
---- - If a slot is going to be empty, do not add it to the empty cache until afterwards
-
 ---@class VirtualInv : Reserve
 ---@field virtSlots table<InventoryCoordinate,VirtualItem>
+---@field virtSlotByItem table<ItemCoordinate,table<InventoryCoordinate,VirtualItem>>
 ---@field realItems table<ItemCoordinate,RealItem>
 ---@field invSizes table<string,integer>
 ---@field realSlotList InventoryCoordinate[]
@@ -653,20 +642,32 @@ function VirtualInv__index:_defragItem(itemCoord)
     self:_freeItemLock(itemCoord)
 end
 
-function VirtualInv__index:getDefragFuncs()
-    local f = {}
+---@param executor ParallelismHandler
+---@param tracker ScanTracker?
+function VirtualInv__index:executeDefrag(executor, tracker)
+    tracker = tracker or VirtualInv.defaultTracker()
     for i, v in pairs(self.realItems) do
-        f[#f + 1] = function()
-            self:_defragItem(i)
-        end
+        tracker.totalItems = tracker.totalItems + 1
     end
-    return f
+    for i, v in pairs(self.realItems) do
+        executor:addTask(function()
+            self:_defragItem(i)
+            tracker.itemsDefragged = tracker.itemsDefragged + 1
+        end)
+    end
 end
 
 ---Defrag this VirtualInv
-function VirtualInv__index:defrag()
-    local f = self:getDefragFuncs()
-    batchExecute(f, false, 128)
+---@param verbose boolean?
+---@param tracker ScanTracker?
+function VirtualInv__index:defrag(verbose, tracker)
+    local executor = newParallelismHandler()
+    log(verbose, "Defragging...")
+    local t0 = os.epoch("utc")
+    self:executeDefrag(executor, tracker)
+    executor:execute()
+    local t1 = os.epoch("utc")
+    log(verbose, "Done [%.2f]", (t1 - t0) / 1000)
 end
 
 ---Check if there are 0 of an item, and delete it if there is
@@ -734,6 +735,12 @@ function VirtualInv__index:_setVirtSlot(reserve, virtCoord, itemCoord, count)
     if count == 0 or not itemCoord then
         if itemCoord then
             reserve.items[itemCoord] = nil
+            if self.virtSlotByItem[itemCoord] then
+                self.virtSlotByItem[itemCoord][virtCoord] = nil
+                if not next(self.virtSlotByItem[itemCoord]) then
+                    self.virtSlotByItem[itemCoord] = nil
+                end
+            end
         end
         self.virtSlots[virtCoord] = nil
         if self.realItems[itemCoord] then
@@ -741,6 +748,8 @@ function VirtualInv__index:_setVirtSlot(reserve, virtCoord, itemCoord, count)
         end
         return
     end
+    self.virtSlotByItem[itemCoord] = self.virtSlotByItem[itemCoord] or {}
+    self.virtSlotByItem[itemCoord][virtCoord] = vitem
     self.realItems[itemCoord].virtSlots[virtCoord] = vitem.count
     reserve.items[itemCoord] = vitem
     self:_calculateTotals(itemCoord)
@@ -840,11 +849,8 @@ function VirtualInv__index:_setSlot(invCoord, itemCoord, count)
     end
 
     -- Go find all virtual slots with this item, and append them to this realItem
-    for virtCoord, vitem in pairs(self.virtSlots) do
-        local vitemCoord = coordLib.ItemCoordinate(vitem.name, vitem.nbt)
-        if vitemCoord == itemCoord then
-            ritem.virtSlots[virtCoord] = vitem.count
-        end
+    for virtCoord, vitem in pairs(self.virtSlotByItem[itemCoord] or {}) do
+        ritem.virtSlots[virtCoord] = vitem.count
     end
 
     local vcoord = self:_getRootVirtSlot(itemCoord)
@@ -911,13 +917,18 @@ local function defaultTracker()
     ---@field invsScanned integer
     ---@field totalSlots integer
     ---@field slotsScanned integer
+    ---@field totalItems integer
+    ---@field itemsDefragged integer
     return {
         totalInvs = 0,
         invsScanned = 0,
         totalSlots = 0,
-        slotsScanned = 0
+        slotsScanned = 0,
+        totalItems = 0,
+        itemsDefragged = 0,
     }
 end
+VirtualInv.defaultTracker = defaultTracker
 
 ---Scan a given inventory
 ---@param inv string
@@ -927,33 +938,30 @@ end
 ---@param tracker ScanTracker?
 function VirtualInv__index:_scanInv(inv, list, slots, executor, tracker)
     tracker = tracker or defaultTracker()
-    local list = peripheral.call(inv, "list")
     for _, i in ipairs(slots) do
         local coord = coordLib.InventoryCoordinate(inv, i)
         if list[i] then
-            local f = function()
-                self:_setScanLock(inv)
-                local itemCoord = coordLib.ItemCoordinate(list[i].name, list[i].nbt)
+            local itemCoord = coordLib.ItemCoordinate(list[i].name, list[i].nbt)
+            if detailedDataCache[itemCoord] then
                 self:_setSlot(coord, itemCoord, list[i].count)
-                self:_freeScanLock(inv)
                 tracker.slotsScanned = tracker.slotsScanned + 1
+            else
+                local f = function()
+                    self:_setScanLock(inv)
+                    self:_setSlot(coord, itemCoord, list[i].count)
+                    self:_freeScanLock(inv)
+                    tracker.slotsScanned = tracker.slotsScanned + 1
+                end
+                executor:addTask(f)
             end
-            executor:addTask(f)
         else
             tracker.slotsScanned = tracker.slotsScanned + 1
             self:_setSlot(coord, nil, 0)
         end
     end
-    tracker.invsScanned = tracker.invsScanned + 1
 end
 
-local function log(verbose, s, ...)
-    if verbose then
-        print(s:format(...))
-    end
-end
-
-local scanRatio = 3
+local scanRatio = 2
 local scanMax = 128
 ---Get a list of functions to call in parallel to scan this Reserve
 ---This uses multiple threads to list the contents of each inventory!
@@ -975,19 +983,28 @@ function VirtualInv__index:executeScan(verbose, tracker)
         slotsPerInventory[inv] = slotsPerInventory[inv] or {}
         slotsPerInventory[inv][#slotsPerInventory[inv] + 1] = slot
     end
-    log(verbose, "Scanning Contents...")
+    log(verbose, "Discovered %d slots across %d inventories.", tracker.totalSlots, tracker.totalInvs)
+    log(verbose, ".list() Contents...")
     local t0 = os.epoch("utc")
-    local slotExecutor = newParallelismHandler(math.floor(scanMax / scanRatio))
-    local invExecutor = newParallelismHandler(math.floor(scanRatio)) -- N invExecutor threads each executing M slotExecutor threads
+    local listings = {}
+    local invExecutor = newParallelismHandler()
     for inv in pairs(inventories) do
         invExecutor:addTask(function()
-            local list = invCall(inv, "list")
-            self:_scanInv(inv, list, slotsPerInventory[inv], slotExecutor, tracker)
+            listings[inv] = invCall(inv, "list")
+            tracker.invsScanned = tracker.invsScanned + 1
         end)
     end
     invExecutor:execute()
-    slotExecutor:execute()
     local t1 = os.epoch("utc")
+    log(verbose, "Done [%.2f]", (t1 - t0) / 1000)
+    t0 = t1
+    log(verbose, "Detailed Scan...")
+    local slotExecutor = newParallelismHandler()
+    for inv in pairs(inventories) do
+        self:_scanInv(inv, listings[inv], slotsPerInventory[inv], slotExecutor, tracker)
+    end
+    slotExecutor:execute()
+    t1 = os.epoch("utc")
     log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
 end
 
@@ -1083,8 +1100,9 @@ function VirtualInv__index:_callChangedCallback()
 end
 
 ---@param invs InventoryCompatible[]
+---@param tracker ScanTracker?
 ---@return VirtualInv
-function VirtualInv.new(invs)
+function VirtualInv.new(invs, tracker)
     local ess = Reserve.emptySlotStorage()
     ---@diagnostic disable-next-line: missing-fields
     ---@class VirtualInv : Reserve
@@ -1120,13 +1138,20 @@ function VirtualInv.new(invs)
 
 
     self.virtSlots = {}
+    self.virtSlotByItem = {}
     self.scanLocks = {}
     self.realItemLUT = {}
     self.ess = ess
     self.rootVirtSlotLUT = {}
     self.realItems = {}
 
-    self:scan(verbose)
+    if tracker then
+        self:executeScan(verbose, tracker)
+    else
+        self:scan(verbose)
+    end
+
+    self:defrag(verbose, tracker)
 
     return self
 end

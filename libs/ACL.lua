@@ -31,12 +31,15 @@ end
 ---Wrap a list of inventories
 ---@param invList string[]
 ---@param wmodem Modem?
-function lib.wrap(invList, wmodem)
+---@param tracker ScanTracker?
+---@return ACL
+function lib.wrap(invList, wmodem, tracker)
     -- Called 'this' to avoid scope conflictions with 'self'
+    ---@class ACL
     local this = {}
     this.scheduler = TaskLib.Scheduler()
 
-    local invReserve = VirtualInv.new(invList)
+    local invReserve = VirtualInv.new(invList, tracker)
     this.reserve = invReserve
     invReserve:defrag()
 
@@ -54,7 +57,7 @@ function lib.wrap(invList, wmodem)
     local busyTurtles = {}
     function this.searchForTurtles()
         wmodem.transmit(turtlePort, turtlePort, { "GET_NAME" })
-        local tid = os.startTimer(1)
+        local tid = os.startTimer(0.5)
         ---@type table<string,boolean>
         local foundTurtles = {}
         while true do
@@ -63,7 +66,7 @@ function lib.wrap(invList, wmodem)
                 if type(message) == "table" and message[1] == "NAME" then
                     foundTurtles[message[2]] = true
                     os.cancelTimer(tid)
-                    tid = os.startTimer(1)
+                    tid = os.startTimer(0.5)
                 end
             elseif e == "timer" and side == tid then
                 break

@@ -2,6 +2,8 @@ local acl = require("libs.ACL")
 local ID = require("libs.ItemDescriptor")
 local stl = require("libs.STL")
 local sset = require("libs.sset")
+local ui = require("libs.ui")
+local VirtualInv = require("libs.VirtualInv")
 
 local protocol = require("libs.clientlib").protocol
 local hostname = "HOST_TEST"
@@ -25,10 +27,68 @@ for i, v in ipairs(peripheral.getNames()) do
     end
 end
 local t0 = os.epoch("utc")
-local inv = acl.wrap(chestList, modem)
+local tracker = VirtualInv.defaultTracker()
+---@type ACL
+local inv
+
+local w, h = term.getSize()
+ui.applyPallete(term)
+local headWin = window.create(term.current(), 1, 1, w, 1)
+local logWin = window.create(term.current(), 1, 2, w, h - 3)
+local footerWin = window.create(term.current(), 1, h, w, 1)
+
+ui.preset(headWin, ui.presets.header)
+ui.preset(logWin, ui.presets.list)
+ui.preset(footerWin, ui.presets.footer)
+term.clear()
+term.setCursorPos(1, 1)
+term.redirect(logWin)
+
+ui.header(headWin, "ShrekStorageDrive INDEV")
+parallel.waitForAny(
+    function()
+        inv = acl.wrap(chestList, modem, tracker)
+    end,
+    function()
+        while true do
+            footerWin.clear()
+            local t1 = os.epoch("utc")
+            local invScanning = tracker.totalInvs ~= tracker.invsScanned
+            local total = tracker.totalSlots
+            local scanned = tracker.slotsScanned
+            local stage = "2/3"
+            if tracker.totalInvs ~= tracker.invsScanned then
+                -- We are scanning inventories
+                stage = "1/3"
+                total = tracker.totalInvs
+                scanned = tracker.invsScanned
+            elseif tracker.totalSlots == 0 then
+                -- We haven't started processing yet
+                stage = "0/3"
+            elseif tracker.totalSlots == tracker.slotsScanned then
+                -- We are currently defragging!
+                stage = "3/3"
+                total = tracker.totalItems
+                scanned = tracker.itemsDefragged
+            end
+            local remaining = (total - scanned)
+            local percentage = scanned / total
+            local eta = math.ceil((t1 - t0) * (1 / (percentage) - 1) / 1000)
+            local etaStr = ("%s:%3ds"):format(stage, eta)
+            if eta > 1000 then
+                etaStr = ("%s:---s"):format(stage)
+            end
+            local sw = #etaStr
+            ui.cursor(footerWin, 1, 1)
+            footerWin.write(etaStr)
+            ui.progressBar(footerWin, sw + 2, 1, w - sw + 1, percentage)
+            sleep(0)
+        end
+    end
+)
 local initTime = os.epoch("utc") - t0
 local info = inv.reserve:getSlotInfo()
-print(("Storage initialized %d used (of %d total) slots in %.2f seconds")
+print(("SSD initialized %d used (of %d total) slots in %.2f seconds")
     :format(info.used, info.total, initTime / 1000))
 
 
@@ -184,6 +244,14 @@ local f = {
 }
 local hostTask = stl.Task.new(f, "Host")
 inv.scheduler.queueTask(hostTask)
+inv.scheduler.queueTask(stl.Task.new({
+    function()
+        while true do
+            ui.footer(footerWin, ("Q:%d"):format(#messageQueue))
+            sleep(0)
+        end
+    end
+}, "Footer Display"))
 
 local mf = {}
 for i = 1, 1 do
