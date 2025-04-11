@@ -900,4 +900,28 @@ function ui.searchableTableGUIWrapper(win, lwin, iwin, filter, wrap)
     return wrap
 end
 
+local function getTenths(n)
+    local ten = n * 10
+    return ten - math.floor(ten)
+end
+
+---Draw a progress bar
+---@param dev term|Window
+---@param x integer
+---@param y integer
+---@param w integer
+---@param p number [0,1] percentage
+function ui.progressBar(dev, x, y, w, p)
+    if p ~= p then p = 0 end
+    w = w - 2
+    local s = ("\127"):rep(math.floor(w * p))
+    if p < 1 and getTenths(p) > 0.5 then
+        s = s .. "\149"
+    end
+    s = s .. (" "):rep(w - #s)
+    local ox, oy = ui.cursor(dev, x, y)
+    dev.write(s)
+    ui.cursor(dev, ox, oy)
+end
+
 return ui

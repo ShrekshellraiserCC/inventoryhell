@@ -87,7 +87,7 @@ local function sendAndRecieve(msg)
                 gotAck = true
                 log("Got ACK for %d", id)
             elseif response.type == "ERROR" then
-                error(("Got error from server while processing request:\n%s"):format(response.error))
+                error(("Got error from server while processing request:\n%s"):format(response.error), 0)
             end
         elseif sender == nil then
             tries = tries + 1
@@ -170,6 +170,15 @@ end
 function clientlib.rebootAll()
     rednet.broadcast({ type = "rebootAll" }, clientlib.protocol)
     os.reboot()
+end
+
+---Import a JSON recipe into this storage
+function clientlib.importJSON(json)
+    sendAndRecieve({ type = "importJSON", json = json })
+end
+
+function clientlib.saveRecipes()
+    sendAndRecieve({ type = "saveRecipes" })
 end
 
 function clientlib.open()

@@ -126,8 +126,13 @@ end)
 registerMessageHandler("listRecipes", function(msg)
     return inv.craft.listRecipes()
 end)
-registerMessageHandler("addRecipe", function()
-
+registerMessageHandler("importJSON", function(msg)
+    inv.craft.importJSON(msg.json)
+    return true
+end)
+registerMessageHandler("saveRecipes", function()
+    inv.craft.saveRecipes()
+    return true
 end)
 
 ---@param msg table

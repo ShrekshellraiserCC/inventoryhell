@@ -218,4 +218,30 @@ function Item.unserialize(s)
     error("Could not unserialize ItemDescriptor!")
 end
 
+---Parse out recipe Item info from standard JSON formats
+---i.e. {"item":"minecraft:andesite"} -> Nminecraft:andesite
+function Item.parseJSON(t)
+    if #t > 0 then
+        -- this is an OR operation
+        local id = Item.parseJSON(t[1])
+        for i = 2, #t do
+            local v = t[i]
+            id = Item.gateOr(id, Item.parseJSON(v))
+        end
+        return id
+    end
+    if t.item then
+        return Item.fromName(t.item)
+    elseif t.tag then
+        return Item.hasTag(t.tag)
+    end
+end
+
+---@param coord ItemCoordinate
+function Item.fromCoord(coord)
+    local coordLib = require "libs.Coordinates"
+    local name, nbt = coordLib.splitItemCoordinate(coord)
+    return Item.fromName(name, nbt)
+end
+
 return Item

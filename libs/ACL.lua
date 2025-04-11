@@ -3,6 +3,7 @@
 -- Simple Storage Lib
 local lib            = {}
 local ItemDescriptor = require("libs.ItemDescriptor")
+local coordLib       = require("libs.Coordinates")
 local shrexpect      = require("libs.shrexpect")
 local sset           = require("libs.sset")
 
@@ -329,7 +330,7 @@ function lib.wrap(invList, wmodem, tracker)
     local function serializeRecipe(r)
         local s = {}
         s[#s + 1] = "R"
-        s[#s + 1] = cacheID(ItemDescriptor.fromName(r.product))
+        s[#s + 1] = cacheID(ItemDescriptor.fromCoord(r.product))
         s[#s + 1] = "T"
         s[#s + 1] = registeredMachineTypes[r.type].id
         s[#s + 1] = "P"
@@ -343,8 +344,8 @@ function lib.wrap(invList, wmodem, tracker)
         end
         s[#s] = ";" -- remove trailing comma
         local recipeSize = 0
-        for _ in pairs(r.recipe) do
-            recipeSize = recipeSize + 1
+        for i in pairs(r.recipe) do
+            recipeSize = math.max(recipeSize, i)
         end
         s[#s + 1] = "r"
         s[#s + 1] = recipeSize
@@ -443,13 +444,16 @@ function lib.wrap(invList, wmodem, tracker)
     local function unserializeRecipe(s)
         local firstPattern = "R(%d+)T(%d+)P(%d+)I(%d+)="
         local start, finish = s:find(firstPattern)
+        if not finish then
+            error(("Invalid pattern: %s"):format(s))
+        end
         local productID, rtype, produces, itemCount = s:match(firstPattern)
         local idx = finish + 1
         lastRecipeID = lastRecipeID + 1
         local r = {
             items = {},
             produces = tonumber(produces),
-            product = IDCacheList[tonumber(productID)]:sub(2),
+            product = coordLib.ItemCoordinate(IDCacheList[tonumber(productID)]:sub(2)),
             recipe = {},
             type = machineTypeList[tonumber(rtype)]
         }
@@ -506,11 +510,15 @@ function lib.wrap(invList, wmodem, tracker)
     local machineTypesFN = "machine_types.txt"
     local itemCacheFN = "item_cache.txt"
     local function saveRecipes()
+        local seenRecipes = {}
         local sreps = {}
         for ic, recipes in pairs(registeredRecipes) do
             for _, recipe in ipairs(recipes) do
                 local sr = serializeRecipe(recipe)
-                sreps[#sreps + 1] = sr
+                if not seenRecipes[sr] then
+                    sreps[#sreps + 1] = sr -- remove duplicates
+                    seenRecipes[sr] = true
+                end
             end
         end
         local smachines = {}
@@ -1007,30 +1015,72 @@ function lib.wrap(invList, wmodem, tracker)
         return setmetatable(freeTask, MachineCraftTask), craftCount
     end
 
-    local function registerFurnaces()
-        this.craft.newMachineType("furnace", { { 1, 1 } }, { 1, 3 }, function(n)
-            return math.ceil(n / 8) * 8
-        end, function(count, invs)
-            local moved = 0
-            local toMove = math.ceil(count / 8)
-            local coal = ItemDescriptor.fromName("minecraft:coal")
-            local inv = invs[1][1]
-            while true do
-                local m = this.reserve:pushItems(inv, coal, toMove - moved, 2)
-                moved = moved + m
-                if moved == toMove then
-                    break
+    local recipeParsers = {}
+    ---@param parse fun(input:table)
+    function this.craft.registerJSONParser(type, parse)
+        recipeParsers[type] = parse
+    end
+
+    local function parseShaped(input)
+        local key = {}
+        local items = {}
+        for k, v in pairs(input.key) do
+            items[#items + 1] = ItemDescriptor.parseJSON(v)
+            key[k] = #items
+        end
+        local recipe = {}
+        for row, s in ipairs(input.pattern) do
+            for col = 1, #s do
+                local idx = (row - 1) * 3 + col
+                local ch = s:sub(col, col)
+                if ch ~= " " then
+                    recipe[idx] = key[ch]
                 end
             end
-        end)
-        for _, v in ipairs(peripheral.getNames()) do
-            if v:match("minecraft:furnace") then
-                this.craft.registerMachine("furnace", v)
+        end
+        local product = coordLib.ItemCoordinate(input.result.item)
+        local produces = input.result.count or 1
+        this.craft.registerRecipe("grid", items, recipe, product, produces)
+    end
+    this.craft.registerJSONParser("minecraft:crafting_shaped", parseShaped)
+
+    local function parseShapeless(input)
+        local items = {}
+        local seenItems = {}
+        local recipe = {}
+        for i, v in ipairs(input.ingredients) do
+            local id = ItemDescriptor.parseJSON(v)
+            local ids = id:serialize()
+            if not seenItems[ids] then
+                items[#items + 1] = id
+                seenItems[ids] = #items
             end
+            recipe[i] = seenItems[ids]
+        end
+        local product = coordLib.ItemCoordinate(input.result.item)
+        local produces = input.result.count or 1
+        this.craft.registerRecipe("grid", items, recipe, product, produces)
+    end
+    this.craft.registerJSONParser("minecraft:crafting_shapeless", parseShapeless)
+
+    ---@param s string
+    function this.craft.importJSON(s)
+        local json = textutils.unserialiseJSON(s)
+        if not json then return end
+        local parser = recipeParsers[json.type]
+        if not parser then return end
+        parser(json)
+    end
+
+    local function loadPlugins(dir)
+        local list = fs.list(dir)
+        for i, v in ipairs(list) do
+            print("Loading Plugin:", v)
+            loadfile(fs.combine(dir, v), "t", _ENV)()(this)
         end
     end
+    loadPlugins("disk/cplugins")
     this.craft.loadRecipes()
-    registerFurnaces()
 
     ---@class RecipeInfo
     ---@field name string
@@ -1042,7 +1092,6 @@ function lib.wrap(invList, wmodem, tracker)
     function this.craft.listRecipes()
         ---@type RecipeInfo[]
         local r = {}
-        local coordLib = require("libs.Coordinates")
         for i, v in pairs(registeredRecipes) do
             local name, nbt = coordLib.splitItemCoordinate(i)
             for _, recipe in ipairs(v) do
@@ -1056,6 +1105,17 @@ function lib.wrap(invList, wmodem, tracker)
         end
         return r
     end
+
+    local function debugParseJSONs()
+        local list = fs.list("disk/recipes/")
+        for i, v in ipairs(list) do
+            local f = assert(fs.open(fs.combine("disk/recipes/", v), "r"))
+            local s = f.readAll()
+            f.close()
+            this.craft.importJSON(s)
+        end
+    end
+    debugParseJSONs()
 
     ---Start this wrapper's coroutine
     ---Does not return, run this in parallel (or another coroutine manager)

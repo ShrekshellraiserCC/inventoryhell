@@ -5,3 +5,5 @@ rstest.lua
 shulkershulker.lua
 *.code-workspace
 .vscode
+recipes
+recipes/*
