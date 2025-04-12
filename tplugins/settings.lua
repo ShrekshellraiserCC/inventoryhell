@@ -32,7 +32,7 @@ return function(tlib)
         end, { "Name", "Value", "Description" }, function(i, v)
             tlib.win.input.setCursorBlink(false)
             ui.changeSetting(tlib.win.main, v)
-        end)
+        end, nil, sset.get(sset.unlockMouse))
     local swrap = ui.searchableTableGUIWrapper(
         tlib.win.main,
         tlib.win.list,

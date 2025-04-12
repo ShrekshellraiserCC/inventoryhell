@@ -1,9 +1,11 @@
 -- Emulate the style of old windows 9x defrag windows, showing the content of the storage
 local clientlib = require("libs.clientlib")
 local ui = require("libs.ui")
+local sset = require("libs.sset")
 clientlib.open()
 
-local mon = peripheral.wrap("top") --[[@as Monitor]]
+local mon = peripheral.wrap("right") --[[@as Monitor]]
+ui.loadTheme(sset.get(sset.theme))
 ui.applyPallete(mon)
 mon.setTextScale(0.5)
 local mw, mh = mon.getSize()

@@ -233,6 +233,13 @@ sset.termInventoryPoll = registerSetting("term:inventoryPoll",
     "How frequently to poll the configured inventory for changes", "number", 1, true, "local")
 
 sset.scrollDelay = registerSetting("ui:scrollDelay", "Horizontal Text Scrolling Delay", "number", 0.15, true)
+sset.theme = registerSetting("ui:theme", [[
+Color theme to use for UIs as path to .lua theme file.
+Invalid paths reset to default palette.
+]], "string", "disk/themes/gnome.lua", true, "both")
+sset.unlockMouse = registerSetting("ui:unlockMouse", [[
+Unlock the mouse scroll from UI list selection position.
+]], "boolean", true, true, "both")
 
 sset.settingChangeCheckInterval = registerSetting("sset:settingChangeCheckInterval",
     "Delay between checking whether the config files have been updated.", "number", 5, nil, "global")
@@ -245,7 +252,6 @@ sset.recipeCacheDir = registerSetting("host:recipeCacheDir",
     "What directory should the recipes be saved in. WARNING: Make sure to save your recipes after changing this!",
     "string", "/", true, "global")
 
-sset.theme = registerSetting("theme", "Color theme to use for UIs", "string", "disk/themes/gnome.lua", true, "both")
 
 loadSettings()
 

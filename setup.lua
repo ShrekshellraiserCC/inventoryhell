@@ -110,7 +110,7 @@ do
                 end
                 os.reboot()
             end
-        end)
+        end, nil, sset.get(sset.unlockMouse))
     registerUI("Setup", wrap.draw, wrap.onEvent)
 end
 setUI("Setup")

@@ -27,7 +27,7 @@ return function(tlib)
             return { v.displayName or v.name, v.type }
         end, { "Name", "Type" }, function(i, v)
 
-        end)
+        end, nil, sset.get(sset.unlockMouse))
     local swrap = ui.searchableTableGUIWrapper(
         tlib.win.main,
         tlib.win.list,

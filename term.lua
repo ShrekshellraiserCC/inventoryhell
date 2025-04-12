@@ -128,7 +128,7 @@ local function setUI(name)
     end
 end
 
-do
+do -- Main UI Setup
     local mainList = ui.tableGuiWrapper(
         mainWindow,
         uiList,
@@ -148,7 +148,7 @@ do
     setUI("main")
 end
 
-do
+do -- Storage UI Setup
     local columns = { "Count", "Name" }
     if not sset.get(sset.hideExtra) then
         columns[#columns + 1] = "Extra"
@@ -177,7 +177,7 @@ do
             end
         end
         expectingItems = false
-    end, { true }, nil, { "r" })
+    end, { true }, sset.get(sset.unlockMouse), { "r" })
     local reread = ui.reread(tlib.win.input, 3, 1, w - 2)
     local filteredList = {}
     ---@type "ID"|"Pattern"|"Invalid"
@@ -286,13 +286,26 @@ local function turtleInventoryPoll()
     end
 end
 
+local renderRate = 0.05
 local function main()
+    local rtid = os.startTimer(renderRate)
+    local rtime = os.epoch("utc")
+    render()
     while true do
-        render()
         local e = table.pack(os.pullEvent())
+        if os.epoch("utc") - rtime > renderRate * 1000 or (e[1] == "timer" and e[2] == rtid) then
+            render()
+            os.cancelTimer(rtid)
+            rtime = os.epoch("utc")
+            rtid = os.startTimer(renderRate)
+        end
         if not activeUI.onEvent(e, tlib) then
             if e[1] == "key" and e[2] == keys.tab then
                 setUI("main")
+            elseif e[1] == "mouse_click" then
+                if e[3] == 1 and e[4] == h then
+                    setUI("main")
+                end
             end
         end
     end

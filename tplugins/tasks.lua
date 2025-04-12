@@ -20,7 +20,7 @@ return function(tlib)
         { "Name", "Running", "Count" },
         function(i, v)
 
-        end
+        end, nil, sset.get(sset.unlockMouse)
     )
     local function render()
         if showLocal then

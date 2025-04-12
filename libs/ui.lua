@@ -344,6 +344,24 @@ local function tableGuiWrapper(win, t, getStr, columns, onSelect, lockWidth, unl
                 end
                 return true
             end
+        elseif e[1] == "mouse_click" then
+            local wx, wy = win.getPosition()
+            local x, y = e[3] - wx, e[4] - wy
+            local idx = start + y - 1
+            local ww, wh = win.getSize()
+            if y >= wh or y < 1 then
+                return
+            end
+            if selected == idx then
+                if t[idx] then
+                    onSelect(idx, t[idx])
+                end
+            end
+            selected = idx
+            wrapBounds()
+            wrapper.restartTicker()
+            lastInteract = "scroll"
+            return true
         elseif e[1] == "mouse_scroll" then
             if unlockMouse then
                 start = start + e[2]
@@ -497,6 +515,7 @@ local function getItemCount(win, item)
     local mult = 8
     local tick = 0
     local tid = os.startTimer(scrollDelay)
+    local w, h = win.getSize()
     while true do
         renderGetItemCount(win, item, mult, tick)
         local e = { os.pullEvent() }
@@ -519,6 +538,10 @@ local function getItemCount(win, item)
         elseif e[1] == "timer" and e[2] == tid then
             tid = os.startTimer(scrollDelay)
             tick = tick + 1
+        elseif e[1] == "mouse_click" then
+            if e[3] == 1 and e[4] == h then
+                return
+            end
         end
         mult = heldKeys[keys.leftShift] and 64
             or heldKeys[keys.leftCtrl] and 1
@@ -589,6 +612,13 @@ function reread__index:onEvent(e)
     elseif e[1] == "key_up" and e[2] == keys.leftCtrl then
         self.controlHeld = false
         return true
+    elseif e[1] == "mouse_click" then
+        local wx, wy = self.win.getPosition()
+        local cx, cy = e[3] - wx + 1, e[4] - wy + 1
+        if cx > 1 and cx <= self.w and cy == 1 and e[2] == 2 then
+            self:setValue("")
+            return true
+        end
     elseif e[1] == "paste" then
         self.buffer = self.buffer:sub(1, self.cursor - 1) .. e[2]
             .. self.buffer:sub(self.cursor)
@@ -730,7 +760,6 @@ end
 ---@param s RegisteredSetting
 function ui.changeSetting(win, s)
     local w, h = win.getSize()
-    local sset = require("libs.sset")
     local tick = 0
     local scroll = 0
     local maxScroll
