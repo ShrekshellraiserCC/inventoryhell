@@ -40,7 +40,7 @@ local function searchForItems(item, tab)
         end
     end
     table.sort(t, function(a, b)
-        return a.count > b.count
+        return tab[a].count > tab[b].count
     end)
     return t
 end
@@ -229,7 +229,7 @@ end
 ---@param limit integer
 ---@return integer moved
 function Reserve__index:transfer(to, desc, limit)
-    shrexpect({ "Reserve", "string", "number" }, { to, desc, limit })
+    shrexpect({ "Reserve", "ItemDescriptor", "number" }, { to, desc, limit })
     return self.parent:_transfer(self, to, desc, limit)
 end
 
@@ -628,8 +628,11 @@ end
 ---Defrag a given item
 ---@param itemCoord ItemCoordinate
 function VirtualInv__index:_defragItem(itemCoord)
-    self:_setItemLock(itemCoord)
     local ritem = self.realItems[itemCoord]
+    if getLength(ritem.partSlots) < 2 then
+        return
+    end
+    self:_setItemLock(itemCoord)
     while getLength(ritem.partSlots) > 1 do
         local fromInvCoord, fromCount = next(ritem.partSlots)
         local toInvCoord, toCount = next(ritem.partSlots, fromInvCoord)
@@ -715,6 +718,10 @@ function VirtualInv__index:_getRootVirtSlot(itemCoord)
     local virtCoord = self:_newVirtSlot()
     self.rootVirtSlotLUT[itemCoord] = virtCoord
     return virtCoord
+end
+
+function VirtualInv__index:emptyReserve()
+    return Reserve.empty(self)
 end
 
 ---Set the contents of a virtual slot directly
@@ -1097,6 +1104,12 @@ function VirtualInv__index:_callChangedCallback()
     if self.changedCallback then
         self.changedCallback(self)
     end
+end
+
+---@param icoord ItemCoordinate
+---@return CCItemInfo?
+function VirtualInv.getCachedItemInfo(icoord)
+    return detailedDataCache[icoord]
 end
 
 ---@param invs InventoryCompatible[]

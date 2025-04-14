@@ -252,6 +252,21 @@ sset.recipeCacheDir = registerSetting("host:recipeCacheDir",
     "What directory should the recipes be saved in. WARNING: Make sure to save your recipes after changing this!",
     "string", "/", true, "global")
 
+sset.craftRotate = registerSetting("crafter:rotate", [[
+Should crafters rotate to indicate they have crafted an item.
+]], "boolean", true, false, "global")
+sset.craftDelay = registerSetting("crafter:delay", [[
+How long should be waited between frames on the crafter
+]], "number", 0.1, false, "global")
+sset.craftVisualizer = registerSetting("crafter:visualizer", [[
+What visualizer to use for rendering on crafters.
+]], "string", "DVD", true, "global", { "DVD", "Bouncy", "None", "Random" })
+sset.craftMax = registerSetting("crafter:max", [[
+Maximum 'particles' to display on the crafter at any time.
+]], "number", 100, false, "global")
+sset.craftKeep = registerSetting("crafter:keepCount", [[
+Whether the crafter should keep count of how many items it has crafted through reboots.
+]], "boolean", true, true, "global")
 
 loadSettings()
 
