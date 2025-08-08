@@ -78,13 +78,15 @@ do
     local options = {}
     local bootOptions = {
         Host = "host",
+        ["Host (* Replaces Existing!)"] = "host",
         ["Host + Term"] = "host+term",
+        ["Host + Term (* Replaces Existing!)"] = "host+term",
         Term = "term",
         Crafter = "crafter"
     }
     local hostOptions = {
-        Host = true,
-        ["Host + Term"] = true
+        host = true,
+        ["host+term"] = true
     }
     local hostExists = sset.get(sset.hid)
     if not hostExists then
@@ -94,6 +96,10 @@ do
     options[#options + 1] = "Term"
     if turtle then
         options[#options + 1] = "Crafter"
+    end
+    if hostExists then
+        options[#options + 1] = "Host (* Replaces Existing!)"
+        options[#options + 1] = "Host + Term (* Replaces Existing!)"
     end
 
     options[#options + 1] = "Edit Settings"
@@ -105,7 +111,7 @@ do
                 setUI("Settings")
             elseif bootOptions[v] then
                 sset.set(sset.program, bootOptions[v])
-                if hostOptions[v] then
+                if hostOptions[bootOptions[v]] then
                     sset.set(sset.hid, os.getComputerID())
                 end
                 os.reboot()
