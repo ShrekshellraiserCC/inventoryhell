@@ -234,11 +234,11 @@ function lib.wrap(invList, wmodem, tracker)
 
     ---@param r Reserve?
     ---@param name string?
-    ---@return PullTask|Task
+    ---@return PullTask
     function PullTask.new(r, name)
         local self = setmetatable(TaskLib.Task.new({}, name), PullTask)
         self.reserve = r
-        return self
+        return self --[[@as PullTask]]
     end
 
     ---@class TurtleCraftTask : QueableTask
@@ -266,7 +266,7 @@ function lib.wrap(invList, wmodem, tracker)
     ---@field id integer
     ---@field type "grid"|string machine type
     ---@field items ItemDescriptor[]
-    ---@field recipe table<integer,integer|{[1]:integer,[2]:integer}>
+    ---@field recipe table<integer,integer|pair>
     ---@field produces integer
     ---@field product ItemCoordinate
 
@@ -297,6 +297,7 @@ function lib.wrap(invList, wmodem, tracker)
         if IDCacheLUT[id] then
             return IDCacheLUT[id]
         end
+        id = id --[[@as string]] -- this is dumb
         local idx = #IDCacheList + 1
         IDCacheLUT[id] = idx
         IDCacheList[idx] = id
@@ -420,10 +421,12 @@ function lib.wrap(invList, wmodem, tracker)
         end
         return t
     end
+
+
     ---@param s string
     ---@param idx integer
     ---@return integer
-    ---@return integer|{[1]:integer,[2]:integer}?
+    ---@return integer|pair?
     ---@return string
     local function parseRecipePart(s, idx)
         if s:sub(idx, idx) == "{" then
@@ -458,6 +461,7 @@ function lib.wrap(invList, wmodem, tracker)
             type = machineTypeList[tonumber(rtype)]
         }
         for i = 1, itemCount do
+            ---@type integer|pair?
             local itemID = 0
             idx, itemID = parseRecipePart(s, idx)
             r.items[i] = ItemDescriptor.unserialize(IDCacheList[itemID])
@@ -480,7 +484,7 @@ function lib.wrap(invList, wmodem, tracker)
         local m = {
             invs = {},
             mtype = machineTypeList[tonumber(machineID)],
-            ptype = pmachineID ~= "" and machineTypeList[tonumber(pmachineID)],
+            ptype = pmachineID ~= "" and machineTypeList[tonumber(pmachineID)] or nil,
             name = name
         }
         local idx = finish + 1
@@ -501,7 +505,7 @@ function lib.wrap(invList, wmodem, tracker)
     local function readFromFile(fn)
         local path = fs.combine(sset.get(sset.recipeCacheDir), fn)
         local f = assert(fs.open(path, "r"))
-        local s = f.readAll()
+        local s = f.readAll() --[[@as string]] -- does this EVEN return nil?
         f.close()
         return textutils.unserialise(s)
     end
@@ -543,14 +547,14 @@ function lib.wrap(invList, wmodem, tracker)
                 and fs.exists(machinesFN) and fs.exists(machineTypesFN)) then
             return
         end
-        local sreps = readFromFile(recipeFN)
-        IDCacheList = readFromFile(itemCacheFN)
+        local sreps = readFromFile(recipeFN) --[[@as string[] ]]
+        IDCacheList = readFromFile(itemCacheFN) --[[@as string[] ]]
         IDCacheLUT = {}
         for i, v in ipairs(IDCacheList) do
             IDCacheLUT[v] = i
         end
-        local smachines = readFromFile(machinesFN)
-        local stypes = readFromFile(machineTypesFN)
+        local smachines = readFromFile(machinesFN) --[[@as string[] ]]
+        local stypes = readFromFile(machineTypesFN) --[[@as string[] ]]
         registeredMachineTypes = {}
         machineTypeList = {}
         freeMachines = {}
@@ -579,7 +583,7 @@ function lib.wrap(invList, wmodem, tracker)
     ---Register a recipe
     ---@param mtype string
     ---@param items ItemDescriptor[]
-    ---@param recipe integer[]|{[1]:integer,[2]:integer}[]
+    ---@param recipe integer[]|pair[]
     ---@param product ItemCoordinate
     ---@param produces integer
     ---@return integer recipeID
@@ -671,8 +675,8 @@ function lib.wrap(invList, wmodem, tracker)
             { item, count, itemCounts, alternative })
         itemCounts = itemCounts or {}
         alternative = alternative or 1
-        if type(item) == "table" and item:toCoord() then
-            item = item:toCoord()
+        if type(item) == "table" then
+            item = item:toCoord() or item
         end
         if type(item) == "table" then
             -- ItemDescriptor
@@ -710,7 +714,7 @@ function lib.wrap(invList, wmodem, tracker)
             return turt
         end
         ---@type PushTask
-        local pushIngredientsTask = PushTask.new(r, "TurtlePush"):addSubtask(allocateTask)
+        local pushIngredientsTask = PushTask.new(r, "TurtlePush"):addSubtask(allocateTask) --[[@as PushTask]]
         for i, v in ipairs(items) do
             local slots = {}
             for slot, item in pairs(recipe) do
@@ -735,16 +739,17 @@ function lib.wrap(invList, wmodem, tracker)
         end }, "TurtleFree"):addSubtask(pullProductTask)
 
         ---@type TurtleCraftTask
-        local callbackTask = freeTask
+        local callbackTask = freeTask --[[@as TurtleCraftTask]] -- I LOVE LLS
         if callback then
-            callbackTask = TaskLib.Task.new({ callback }, "TurtleCallback"):addSubtask(freeTask)
+            callbackTask = TaskLib.Task.new({ callback }, "TurtleCallback"):addSubtask(freeTask) --[[@as TurtleCraftTask]]
         end
         callbackTask.rootTask = allocateTask
 
         return setmetatable(callbackTask, TurtleCraftTask)
     end
 
-    ---@alias SlotMap {[1]:integer,[2]:integer}
+    ---@alias pair {[1]:integer,[2]:integer}
+    ---@alias SlotMap pair
 
     ---@class RegisteredMachine
     ---@field invs string[]
@@ -890,7 +895,7 @@ function lib.wrap(invList, wmodem, tracker)
     ---@field produces integer
     ---@field recipe integer[]|SlotMap[]
     ---@field count integer
-    local MachineCraftTaskFactory__index = setmetatable({}, QueableTask)
+    local MachineCraftTaskFactory__index = setmetatable({}, QueableTask) --[[@as MachineCraftTaskFactory]]
     local MachineCraftTaskFactory = { __index = MachineCraftTaskFactory__index }
     this.MachineCraftTask = MachineCraftTaskFactory
 
@@ -937,7 +942,7 @@ function lib.wrap(invList, wmodem, tracker)
 
     ---Set the recipe
     ---@param items ItemDescriptor[]
-    ---@param recipe integer[]|{[1]:integer,[2]:integer}[] {item,count}
+    ---@param recipe integer[]|pair[] {item,count}
     ---@param produces integer
     ---@return self
     function MachineCraftTaskFactory__index:setRecipe(items, recipe, produces)
@@ -1012,7 +1017,7 @@ function lib.wrap(invList, wmodem, tracker)
 
         ---@diagnostic disable-next-line: inject-field
         freeTask.rootTask = allocateTask
-        return setmetatable(freeTask, MachineCraftTask), craftCount
+        return setmetatable(freeTask, MachineCraftTask) --[[@as MachineCraftTask]], craftCount
     end
 
     local recipeParsers = {}
@@ -1106,16 +1111,16 @@ function lib.wrap(invList, wmodem, tracker)
         return r
     end
 
-    local function debugParseJSONs()
-        local list = fs.list("disk/recipes/")
-        for i, v in ipairs(list) do
-            local f = assert(fs.open(fs.combine("disk/recipes/", v), "r"))
-            local s = f.readAll()
-            f.close()
-            this.craft.importJSON(s)
-        end
-    end
-    debugParseJSONs()
+    -- local function debugParseJSONs()
+    --     local list = fs.list("disk/recipes/")
+    --     for i, v in ipairs(list) do
+    --         local f = assert(fs.open(fs.combine("disk/recipes/", v), "r"))
+    --         local s = f.readAll()
+    --         f.close()
+    --         this.craft.importJSON(s)
+    --     end
+    -- end
+    -- debugParseJSONs()
 
     ---Start this wrapper's coroutine
     ---Does not return, run this in parallel (or another coroutine manager)

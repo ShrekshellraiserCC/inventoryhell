@@ -8,9 +8,10 @@ local VirtualInv = require("libs.VirtualInv")
 local protocol = require("libs.clientlib").protocol
 local hostname = "HOST_TEST"
 -- Central host process for the storage system
+---@alias Modem ccTweaked.peripherals.Modem
 local modem = peripheral.find("modem", function(name, wrapped)
     return not wrapped.isWireless()
-end)
+end) --[[@as ccTweaked.peripherals.Modem]]
 rednet.open(peripheral.getName(modem))
 rednet.host(protocol, hostname)
 
@@ -73,9 +74,10 @@ parallel.waitForAny(
                 scanned = tracker.itemsDefragged
             end
             local remaining = (total - scanned)
+            if total == 0 then total = 1 end
             local percentage = scanned / total
             local eta = math.ceil((t1 - t0) * (1 / (percentage) - 1) / 1000)
-            local etaStr = ("%s:%3ds"):format(stage, eta)
+            local etaStr = ("%s:%3ss"):format(stage, eta)
             if eta > 1000 then
                 etaStr = ("%s:---s"):format(stage)
             end

@@ -60,7 +60,7 @@ end
 function ui.loadTheme(fn)
     local f = fs.open(fn, "r")
     if not f then return false end
-    local s = f.readAll()
+    local s = f.readAll() --[[@as string]]
     f.close()
     local func = load(s, nil, nil, { colors = colors })
     if not func then return false end
@@ -93,6 +93,8 @@ function ui.color(dev, fg, bg)
     return ofg, obg
 end
 
+---@alias Window ccTweaked.Window
+---@alias color ccTweaked.colors.color
 ---Draw a header at the top of the window
 ---@param win Window
 ---@param s string
@@ -549,6 +551,8 @@ local function getItemCount(win, item)
     end
 end
 ui.getItemCount = getItemCount
+
+---@alias Redirect ccTweaked.term.Redirect
 
 ---@class ResumableRead
 ---@field win Window|Redirect|term

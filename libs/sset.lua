@@ -124,8 +124,8 @@ end
 local function loadSettings()
     lsettingLoadTime = os.epoch("utc")
     gsettingLoadTime = os.epoch("utc")
-    local gsettings = textutils.unserialize(readFromFile(gsettingFn) or "{}")
-    local lsettings = textutils.unserialize(readFromFile(lsettingFn) or "{}")
+    local gsettings = textutils.unserialize(readFromFile(gsettingFn) or "{}") --[[@as table]]
+    local lsettings = textutils.unserialize(readFromFile(lsettingFn) or "{}") --[[@as table]]
     for k, v in pairs(gsettings) do
         setraw(k, v.value, false, v)
     end
@@ -161,6 +161,7 @@ function sset.set(name, value, loc)
     end
 end
 
+---@alias fileAttributes ccTweaked.fs.fileAttributes
 ---@param attr fileAttributes
 local function hasUpdated(attr, last)
     return attr.modified > last

@@ -4,6 +4,7 @@ local ui = require("libs.ui")
 local sset = require("libs.sset")
 clientlib.open()
 
+---@alias Monitor ccTweaked.peripherals.Monitor
 local mon = peripheral.wrap("right") --[[@as Monitor]]
 ui.loadTheme(sset.get(sset.theme))
 ui.applyPallete(mon)

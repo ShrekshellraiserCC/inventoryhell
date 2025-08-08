@@ -51,6 +51,7 @@ function ItemDescriptor__index:match(item)
     return itemDescriptorTypes[self.type](self, item)
 end
 
+---@return string
 function ItemDescriptor__index:serialize()
     local s = ""
     if self.type == "FROM_NAME" then
@@ -167,10 +168,12 @@ local function splitByChar(s, c)
     return s
 end
 
+---@return string?, string, string
 local function splitAndGetOperator(s)
     local level = 0
     local splitIdx, op
     if s:sub(1, 1) ~= "(" or s:sub(#s, #s) ~= ")" then
+---@diagnostic disable-next-line: missing-return-value
         return
     end
     for i = 1, #s do

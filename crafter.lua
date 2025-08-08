@@ -1,8 +1,9 @@
 -- Dumb program to run on turtles to act as simple crafters
+---@alias WiredModem ccTweaked.peripherals.WiredModem
 ---@type WiredModem
 local modem = peripheral.find("modem", function(name, wrapped)
     return not wrapped.isWireless()
-end)
+end) --[[@as WiredModem]]
 local sset = require "libs.sset"
 local ui = require "libs.ui"
 local clientlib = require "libs.clientlib"
@@ -31,7 +32,7 @@ local localName = modem.getNameLocal()
 local counter = 0
 if fs.exists(".crafted") and sset.get(sset.craftKeep) then
     local f = assert(fs.open(".crafted", "r"))
-    counter = tonumber(f.readAll())
+    counter = tonumber(f.readAll()) --[[@as integer]]
     f.close()
 end
 
