@@ -527,6 +527,7 @@ function VirtualInv__index:_pushItems(r, toInv, itemCoord, limit, toSlot)
                 break
             end
         end
+        assert(slotCount, "This should never happen.")
         local expectedToMove = math.min(slotCount, limit - moved)
         local fromInv, fromSlot = coordLib.splitInventoryCoordinate(invCoord)
         local transaction = self:_startTransaction(invCoord, itemCoord, r, -expectedToMove)
@@ -636,6 +637,8 @@ function VirtualInv__index:_defragItem(itemCoord)
     while getLength(ritem.partSlots) > 1 do
         local fromInvCoord, fromCount = next(ritem.partSlots)
         local toInvCoord, toCount = next(ritem.partSlots, fromInvCoord)
+        assert(fromInvCoord, "This should never happen!")
+        assert(toInvCoord, "This should never happen!")
         local fromInv, fromSlot = coordLib.splitInventoryCoordinate(fromInvCoord)
         local toInv, toSlot = coordLib.splitInventoryCoordinate(toInvCoord)
         local moved = invCall(fromInv, "pushItems", toInv, fromSlot, nil, toSlot)
@@ -733,6 +736,7 @@ function VirtualInv__index:_setVirtSlot(reserve, virtCoord, itemCoord, count)
     shrexpect({ "Reserve|VirtualInv", "string", "string?", "number" }, { reserve, virtCoord, itemCoord, count })
     local vitem = self.virtSlots[itemCoord]
     if not vitem then
+        assert(itemCoord, "This should never happen.")
         vitem = getItemDetailed(itemCoord, nil) --[[@as VirtualItem]]
         vitem.count = 0
         vitem.slot = virtCoord

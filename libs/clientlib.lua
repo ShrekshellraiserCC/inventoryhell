@@ -184,7 +184,7 @@ end
 function clientlib.open()
     modem = peripheral.find("modem", function(name, wrapped)
         return not wrapped.isWireless()
-    end)
+    end) --[[@as WiredModem]]
     clientlib.modem = modem
     rednet.open(peripheral.getName(modem))
     local i = 0

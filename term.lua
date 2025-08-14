@@ -35,7 +35,7 @@ end
 
 clientlib.setLogger(tlib.log)
 clientlib.open()
-local lname = turtle and clientlib.modem.getNameLocal()
+local lname = turtle and assert(clientlib.modem.getNameLocal(), "This device is not connected via this modem!")
 local invName = sset.get(sset.termInventory)
 
 function tlib.hideAllWin()

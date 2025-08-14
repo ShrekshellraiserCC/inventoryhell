@@ -27,8 +27,9 @@ function lib.splitInventoryCoordinate(coord)
     expect(1, coord, "string")
     local inv, slot = coord:match("^(.-)@([%a%d]+)$")
     assert(inv, ("Unable to get inventory from InventoryCoordinate: %s"):format(coord))
-    assert(tonumber(slot), ("Invalid slot in InventoryCoordinate: %s"):format(coord))
-    return inv, tonumber(slot)
+    local n = tonumber(slot)
+    assert(n, ("Invalid slot in InventoryCoordinate: %s"):format(coord))
+    return inv, n
 end
 
 ---@param coord ItemCoordinate
