@@ -1,0 +1,94 @@
+return {
+    type = "Screen",
+    content = {
+        {
+            type = "Text",
+            h = 1,
+            text = "nterm",
+            horizontal_alignment = "left",
+            id = "header",
+            theme = {
+                { "fill_color", "blue" }
+            }
+        },
+        {
+            type = "Button",
+            w = "w",
+            h = "h/2-1",
+            y = 2,
+            text = "Listing",
+            on_click = "$tapi.open_screen('listing')$"
+        },
+        {
+            type = "Button",
+            w = "w/2",
+            h = "h/2-2",
+            x = "w/2+1",
+            y = "h/2+1",
+            text = "Settings",
+            on_click = "$tapi.open_screen('settings')$"
+        },
+        {
+            type = "Button",
+            w = "w/2",
+            h = "h/2-2",
+            y = "h/2+1",
+            text = "Tasks",
+            on_click = "$tapi.open_screen('tasks')$"
+        },
+        {
+            type = "Button",
+            w = 6,
+            h = 1,
+            x = "w-5",
+            y = "h",
+            text = "Quit",
+        },
+        {
+            type = "Button",
+            w = 6,
+            h = 1,
+            x = 1,
+            y = "h",
+            z = 3,
+            text = "Power",
+            pressed = "$power_menu_open$",
+            toggle = true
+        },
+        {
+            type = "Frame",
+            x = 1,
+            y = "h-10",
+            w = "w",
+            h = 11,
+            z = 2,
+            hidden = "$not power_menu_open$",
+            content = {
+                {
+                    type = "Button",
+                    x = 1,
+                    y = 1,
+                    h = 3,
+                    w = "w",
+                    text = "Reboot All"
+                },
+                {
+                    type = "Button",
+                    x = 1,
+                    y = 4,
+                    h = 3,
+                    w = "w",
+                    text = "Reboot Server"
+                },
+                {
+                    type = "Button",
+                    x = 1,
+                    y = 7,
+                    h = 3,
+                    w = "w",
+                    text = "Reboot This"
+                }
+            }
+        }
+    }
+}

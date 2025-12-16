@@ -244,7 +244,7 @@ local function loadPlugins(dir)
         loadfile(fs.combine(dir, v), "t", _ENV)()(tlib)
     end
 end
-loadPlugins("disk/tplugins")
+loadPlugins(sset.getInstalledPath "tplugins")
 
 do
     local function render()

@@ -1084,7 +1084,7 @@ function lib.wrap(invList, wmodem, tracker)
             loadfile(fs.combine(dir, v), "t", _ENV)()(this)
         end
     end
-    loadPlugins("disk/cplugins")
+    loadPlugins(sset.getInstalledPath "cplugins")
     this.craft.loadRecipes()
 
     ---@class RecipeInfo

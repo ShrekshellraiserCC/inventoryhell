@@ -162,7 +162,7 @@ function clientlib.pullItems(from, slot, limit)
 end
 
 ---@return TaskListInfo[]
-function clientlib.listThreads()
+function clientlib.listTasks()
     local res = sendAndRecieve({ type = "listThreads" })
     return res[1]
 end
@@ -217,6 +217,16 @@ function clientlib.subscribeToChanges(f)
     while true do
         local sender, msg = rednet.receive(clientlib.protocol)
         if sender == hid and type(msg) == "table" and msg.type == "inventoryChange" then
+            f(msg.list, msg.fragMap)
+        end
+    end
+end
+
+---@param f fun(l:CCItemInfo[],fragMap:FragMap)
+function clientlib.subscribeToServerStart(f)
+    while true do
+        local sender, msg = rednet.receive(clientlib.protocol)
+        if sender == hid and type(msg) == "table" and msg.type == "serverStart" then
             f(msg.list, msg.fragMap)
         end
     end

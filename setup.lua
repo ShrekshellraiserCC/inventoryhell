@@ -73,7 +73,7 @@ local function main()
     end
 end
 
-loadfile("disk/tplugins/settings.lua", "t", _ENV)()(tlib)
+loadfile(sset.getInstalledPath "tplugins/settings.lua", "t", _ENV)()(tlib)
 do
     local options = {}
     local bootOptions = {
@@ -82,6 +82,7 @@ do
         ["Host + Term"] = "host+term",
         ["Host + Term (* Replaces Existing!)"] = "host+term",
         Term = "term",
+        nTerm = "nterm",
         Crafter = "crafter"
     }
     local hostOptions = {
@@ -94,6 +95,7 @@ do
         options[#options + 1] = "Host + Term"
     end
     options[#options + 1] = "Term"
+    options[#options + 1] = "nTerm"
     if turtle then
         options[#options + 1] = "Crafter"
     end
@@ -113,6 +115,10 @@ do
                 sset.set(sset.program, bootOptions[v])
                 if hostOptions[bootOptions[v]] then
                     sset.set(sset.hid, os.getComputerID())
+                end
+                -- TODO get the actual path of the disk.
+                if not fs.exists("startup.lua") then
+                    fs.copy(sset.getInstalledPath "pstartup.lua", "startup.lua")
                 end
                 os.reboot()
             end

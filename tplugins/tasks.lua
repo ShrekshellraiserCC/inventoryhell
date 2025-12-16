@@ -52,7 +52,7 @@ return function(tlib)
             tlib.clientlib.subscribeToTasks(onUpdate)
         end,
         function()
-            onUpdate(tlib.clientlib.listThreads())
+            onUpdate(tlib.clientlib.listTasks())
         end
     }, "TaskUpdater"))
     tlib.registerUI("Tasks", render, onEvent)

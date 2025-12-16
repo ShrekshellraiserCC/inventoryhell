@@ -20,7 +20,7 @@ sset.settingList = {}
 local lsettingLoadTime = os.epoch("utc")
 local lsettingFn = "shreksettings.txt"
 local gsettingLoadTime = os.epoch("utc")
-local gsettingFn = "disk/shreksettings_g.txt"
+local gsettingFn = "disk/shreksettings_g.txt" -- sset.getInstalledPath "shreksettings_g.txt" -- TODO solve this catch-22
 
 local function writeToFile(fn, t)
     local f = assert(fs.open(fn, "w"))
@@ -167,6 +167,14 @@ local function hasUpdated(attr, last)
     return attr.modified > last
 end
 
+---@type function?
+local onChangedCallback
+---Register a function to be called when settings are changed.
+---@param f function
+function sset.onChangedCallback(f)
+    onChangedCallback = f
+end
+
 ---Checks the config files to see if they have been modified since last loaded
 ---If so, reload them
 function sset.checkForChanges()
@@ -181,6 +189,9 @@ function sset.checkForChanges()
     end
     if hasChanged then
         loadSettings()
+        if onChangedCallback then
+            onChangedCallback()
+        end
     end
 end
 
@@ -189,6 +200,10 @@ function sset.checkForChangesThread()
         sleep(sset.get(sset.settingChangeCheckInterval))
         sset.checkForChanges()
     end
+end
+
+function sset.getInstalledPath(fn)
+    return fs.combine(sset.get(sset.install_dir), fn)
 end
 
 ---Register a new type of setting
@@ -222,8 +237,10 @@ sset.register = registerSetting
 
 sset.program = registerSetting(
     "boot:program", "What function does this computer serve?", "string", nil, true, "local",
-    { "host", "term", "crafter", "host+term" })
+    { "host", "term", "crafter", "host+term", "nterm" })
 sset.hid = registerSetting("boot:hid", "Storage Host ID", "number", nil, true, "global")
+local cwd = fs.combine(arg[0], "..")
+sset.install_dir = registerSetting("boot:installDir", "Installation directory", "string", cwd, true, "global")
 
 sset.hideExtra = registerSetting("term:hideExtra", "Hide NBT and other data", "boolean", true, true)
 sset.debounceDelay = registerSetting("term:debounceDelay", "Debounce turtle_inventory by waiting this long.", "number",
@@ -237,7 +254,7 @@ sset.scrollDelay = registerSetting("ui:scrollDelay", "Horizontal Text Scrolling 
 sset.theme = registerSetting("ui:theme", [[
 Color theme to use for UIs as path to .lua theme file.
 Invalid paths reset to default palette.
-]], "string", "disk/themes/gnome.lua", true, "both")
+]], "string", sset.getInstalledPath "themes/gnome.lua", true, "both")
 sset.unlockMouse = registerSetting("ui:unlockMouse", [[
 Unlock the mouse scroll from UI list selection position.
 ]], "boolean", true, true, "both")
