@@ -4,6 +4,7 @@ local stl = require("libs.STL")
 local sset = require("libs.sset")
 local ui = require("libs.ui")
 local VirtualInv = require("libs.VirtualInv")
+local network = rednet -- TODO swap this for a custom impl
 
 local protocol = require("libs.clientlib").protocol
 local hostname = "HOST_TEST"
@@ -12,20 +13,20 @@ local hostname = "HOST_TEST"
 local modem = peripheral.find("modem", function(name, wrapped)
     return not wrapped.isWireless()
 end) --[[@as ccTweaked.peripherals.Modem]]
-rednet.open(peripheral.getName(modem))
-rednet.host(protocol, hostname)
+network.open(peripheral.getName(modem))
+rednet.host(protocol, hostname) -- TODO change this with custom impl
 
 local id = os.getComputerID()
 local function broadcast(m)
-    rednet.broadcast(m, protocol)
-    rednet.send(id, m, protocol)
+    network.broadcast(m, protocol) -- oh god, implement a loopback in the custom impl!!
+    network.send(id, m, protocol)
 end
 
 local chestList = {}
-for i, v in ipairs(peripheral.getNames()) do
-    if v:match("minecraft:chest") then
-        chestList[#chestList + 1] = v
-    end
+for i, v in ipairs({ peripheral.find("inventory") }) do
+    -- if v:match("minecraft:chest") then
+    chestList[#chestList + 1] = peripheral.getName(v)
+    -- end
 end
 local t0 = os.epoch("utc")
 local tracker = VirtualInv.defaultTracker()
@@ -181,7 +182,7 @@ local function processMessageThread()
             if #result > 0 then
                 local response = table.pack(table.unpack(result, 2))
                 if result[1] then
-                    rednet.send(msg.sender, {
+                    network.send(msg.sender, {
                             result = response,
                             type = msg.message.type,
                             side = "server",
@@ -189,7 +190,7 @@ local function processMessageThread()
                         },
                         protocol)
                 else
-                    rednet.send(msg.sender, {
+                    network.send(msg.sender, {
                         type = "ERROR",
                         error = result[2],
                         side = "server",
@@ -207,11 +208,11 @@ end
 
 local function receieveMessageThread()
     while true do
-        local sender, message, prot = rednet.receive(protocol)
+        local sender, message, prot = network.receive(protocol)
         if type(message) == "table" and message.side ~= "server" then
             messageQueue[#messageQueue + 1] = { message = message, sender = sender }
             os.queueEvent(messageQueuedEvent)
-            rednet.send(sender, {
+            network.send(sender, {
                 type = "ACK",
                 ftype = message.type,
                 side = "server",
