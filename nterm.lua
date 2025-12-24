@@ -67,8 +67,8 @@ local function lockUsedExternalSlots()
 end
 
 local function emptyExternalInventory()
-    local list = peripheral.call(invName, "list")
-    local size = peripheral.call(invName, "size")
+    local list = peripheral.call(invName, "list") or {}
+    local size = peripheral.call(invName, "size") or 0
     for i = 1, size do
         if not lockedExternalSlots[i] and list[i] then
             clientlib.pullItems(invName, i)
@@ -98,11 +98,25 @@ local function turtleInventoryPoll()
     end
 end
 
+function tapi.lock_inventory(state)
+    expectingItems = state
+end
+
+function tapi.clear_locked_slots()
+    lockedTurtleSlots = {}
+end
+
+function tapi.empty_inventory()
+    emptyTurtleInventory()
+end
+
 local tw, th = term.getSize()
 local win = window.create(term.current(), 1, 1, tw, th)
 term.clear()
 
+tapi.sset = sset
 
+---@class SSDTermPluginENV
 local env = {
     item = listing[1],
     back_icon = "\27",
@@ -111,14 +125,26 @@ local env = {
     setting_search_bar = "",
     turtle = turtle,
     tapi = tapi,
+    capi = clientlib,
     task_category = "Server",
-    settings = {}
+    settings = {},
+    reboot = os.reboot,
+    quit = function()
+        scheduler.stop()
+    end,
+    selected_setting = {},
+    textutils = textutils,
+    tostring = tostring,
+    ipairs = ipairs,
+    pairs = pairs,
+    debug_overlay = false,
+    type = type
 }
 
-local sort = {}
 env.open_screen_button = function(self)
     tapi.open_screen(self.meta)
 end
+local sort = {}
 local function apply_sort(filter)
     sort = {}
     for i, v in ipairs(listing) do
@@ -131,49 +157,6 @@ end
 apply_sort("")
 env.search_change = function(self, value)
     apply_sort(value)
-end
-local settings_list = {}
-local function create_settings_list()
-    settings_list = {}
-    for i, v in ipairs(sset.settingList) do
-        local value = sset.get(v)
-        if value ~= nil and value == v.default then
-            value = tostring(value) .. "*"
-        else
-            value = tostring(value)
-        end
-        settings_list[i] = {
-            name = v.name,
-            desc = v.desc,
-            value = value
-        }
-    end
-end
-local function apply_settings_sort(s)
-    sort = {}
-    for i, v in ipairs(settings_list) do
-        if v.name:match(s) then
-            sort[#sort + 1] = v
-        end
-    end
-    env.settings = sort
-end
-env.setting_search_change = function(self, value)
-    apply_settings_sort(value)
-end
-env.item_select = function(self, item, idx)
-    ---@cast self Screen
-    env.item = item
-    env.item.detail = nil
-    env.item.detail = textutils.serialize(item)
-    tapi.open_screen("request")
-end
-env.open_craft_button = function(self)
-    expectingItems = env.craft_active
-    if not expectingItems then
-        lockedTurtleSlots = {}
-        emptyTurtleInventory()
-    end
 end
 
 local function request(item, count)
@@ -223,7 +206,9 @@ local function register_screen(name, path)
     screen._theme:append(theme)
     return screen
 end
+tapi.register_screen = register_screen
 
+---@type Screen
 local current_screen
 local screen_stack = {}
 function tapi.open_screen(name)
@@ -247,6 +232,7 @@ end
 local server_tasks = {}
 local function ui_render_loop()
     while true do
+        local tid = os.startTimer(0.05)
         if env.task_category == "Server" then
             env.tasks = server_tasks
         else
@@ -255,8 +241,16 @@ local function ui_render_loop()
         win.setVisible(false)
         win.clear()
         current_screen:render_to(win)
+        -- local b = current_screen._box
+        -- b.overlay = env.debug_overlay
+        -- b.profiler.collapse("shrekbox", false)
+        win.setTextColor(colors.white)
+        win.setBackgroundColor(colors.blue)
+        clientlib.drawStatus(win)
         win.setVisible(true)
-        sleep(0.05)
+        -- b.profiler.start_yield("sleep")
+        repeat until select(2, os.pullEvent("timer")) == tid
+        -- b.profiler.end_yield("sleep")
     end
 end
 
@@ -280,13 +274,11 @@ if invName then
     }, "External I/O"))
 end
 local function init()
-    if invName then
+    if invName and peripheral.wrap(invName) then
         clientlib.removeInventory(invName)
     end
-    -- listing = clientlib.list()
+    listing = clientlib.list()
     server_tasks = clientlib.listTasks()
-    create_settings_list()
-    apply_settings_sort("")
     apply_sort("")
 end
 
@@ -295,29 +287,33 @@ register_screen("request", "tscreens/request.lua")
 register_screen("tasks", 'tscreens/tasks.lua')
 register_screen("settings", "tscreens/settings.lua")
 register_screen("menu", "tscreens/menu.lua")
+register_screen("setting_edit", "tscreens/setting_edit.lua")
+register_screen("setting_reboot", "tscreens/setting_reboot.lua")
 current_screen = screens.menu
 
+scheduler.queueTask(STL.Task.new({
+    init
+}, "Init"))
 scheduler.queueTask(STL.Task.new({
     ui_event_loop, ui_render_loop
 }, "UI"))
 scheduler.queueTask(STL.Task.new({
     clientlib.run,
     function()
-        clientlib.subscribeToChanges(function(l, fm)
-            -- listing = l
-            apply_sort(env.search_bar)
-        end)
-        clientlib.subscribeToServerStart(init)
-        clientlib.subscribeToTasks(function(l)
-            server_tasks = l
-        end)
+        clientlib.subscribeTo({
+            changes = function(l, fm)
+                listing = l
+                apply_sort(env.search_bar)
+            end,
+            start = init,
+            tasks = function(l)
+                server_tasks = l
+            end
+        })
     end
 }, "Clientlib"))
-sset.onChangedCallback(function()
-
-end)
 scheduler.queueTask(STL.Task.new({
-    sset.checkForChangesThread, init,
+    sset.checkForChangesThread
 }, "Settings"))
 
 local ok, err = pcall(scheduler.run)

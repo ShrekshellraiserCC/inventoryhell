@@ -73,6 +73,7 @@ local function main()
     end
 end
 
+--- TODO replace this whole damn UI
 loadfile(sset.getInstalledPath "tplugins/settings.lua", "t", _ENV)()(tlib)
 do
     local options = {}
@@ -115,8 +116,19 @@ do
                 sset.set(sset.program, bootOptions[v])
                 if hostOptions[bootOptions[v]] then
                     sset.set(sset.hid, os.getComputerID())
+                    local modem
+                    while not (modem and modem.getNameLocal()) do
+                        modem = peripheral.find("modem", function(name, wrapped)
+                            return not wrapped.isWireless()
+                        end) --[[@as WiredModem?]]
+                        if not modem then
+                            print("Please right-click to attach the wired modem to this PC!")
+                            print("Press enter.")
+                            read()
+                        end
+                    end
+                    sset.set(sset.hmn, modem.getNameLocal())
                 end
-                -- TODO get the actual path of the disk.
                 if not fs.exists("startup.lua") then
                     fs.copy(sset.getInstalledPath "pstartup.lua", "startup.lua")
                 end

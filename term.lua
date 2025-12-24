@@ -342,10 +342,10 @@ scheduler.queueTask(STL.Task.new({
     main,
     clientlib.run, sset.checkForChangesThread, init,
     function()
-        clientlib.subscribeToChanges(function(l, fm)
+        clientlib.subscribeTo { changes = function(l, fm)
             tlib.fullList = l
             tlib.fragMap = fm
-        end)
+        end }
     end
 }, "Main"))
 scheduler.run()

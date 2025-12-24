@@ -1,5 +1,6 @@
 *.txt
 *.csv
+disk
 disk/*
 rstest.lua
 shulkershulker.lua
@@ -8,3 +9,5 @@ shulkershulker.lua
 .vscode/*
 recipes
 recipes/*
+resize.lua
+mektest.lua

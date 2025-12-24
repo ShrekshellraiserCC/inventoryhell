@@ -86,6 +86,14 @@ parallel.waitForAny(
             ui.cursor(footerWin, 1, 1)
             footerWin.write(etaStr)
             ui.progressBar(footerWin, sw + 2, 1, w - sw + 1, percentage)
+            broadcast({
+                type = "scanProgress",
+                stage = stage,
+                total = total,
+                scanned = scanned,
+                eta = eta,
+                etaStr = etaStr
+            })
             sleep(0)
         end
     end

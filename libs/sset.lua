@@ -1,5 +1,6 @@
 -- Shrek Settings
 local sset = {}
+package.path = package.path .. ";libs/?.lua"
 
 ---@class RegisteredSetting
 ---@field desc string
@@ -20,7 +21,13 @@ sset.settingList = {}
 local lsettingLoadTime = os.epoch("utc")
 local lsettingFn = "shreksettings.txt"
 local gsettingLoadTime = os.epoch("utc")
-local gsettingFn = "disk/shreksettings_g.txt" -- sset.getInstalledPath "shreksettings_g.txt" -- TODO solve this catch-22
+
+local cwd = fs.combine(arg[0], "..")
+if not fs.exists(fs.combine(cwd, "libs/sset.lua")) then
+    error(
+        "SSET cannot automatically determine the installation path when required from a program not in the SSD installation path.")
+end
+local gsettingFn = fs.combine(cwd, "shreksettings_g.txt")
 
 local function writeToFile(fn, t)
     local f = assert(fs.open(fn, "w"))
@@ -151,7 +158,7 @@ function sset.get(name, noDefault)
     end
 end
 
----Set a settings' value, ignores invalid values
+---Set a settings' value, ignores invalid values. Settings can be set to nil.
 ---@param name string|RegisteredSetting
 ---@param value any
 ---@param loc boolean? Local setting
@@ -235,11 +242,14 @@ local function registerSetting(name, desc, dType, default, requiresReboot, side,
 end
 sset.register = registerSetting
 
+sset.version = registerSetting(
+    "version", "The version of SSD last installed to this system. Do not modify.", "string", nil, true, "global"
+)
 sset.program = registerSetting(
     "boot:program", "What function does this computer serve?", "string", nil, true, "local",
-    { "host", "term", "crafter", "host+term", "nterm" })
+    { "host", "term", "crafter", "host+term", "nterm", "host+nterm" })
 sset.hid = registerSetting("boot:hid", "Storage Host ID", "number", nil, true, "global")
-local cwd = fs.combine(arg[0], "..")
+sset.hmn = registerSetting("boot:hmn", "Storage Host Modem Name", "string", nil, true, "global")
 sset.install_dir = registerSetting("boot:installDir", "Installation directory", "string", cwd, true, "global")
 
 sset.hideExtra = registerSetting("term:hideExtra", "Hide NBT and other data", "boolean", true, true)

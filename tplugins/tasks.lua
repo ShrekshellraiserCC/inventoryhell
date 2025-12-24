@@ -49,7 +49,7 @@ return function(tlib)
     end
     tlib.scheduler.queueTask(tlib.STL.Task.new({
         function()
-            tlib.clientlib.subscribeToTasks(onUpdate)
+            tlib.clientlib.subscribeTo { tasks = onUpdate }
         end,
         function()
             onUpdate(tlib.clientlib.listTasks())

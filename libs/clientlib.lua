@@ -4,8 +4,9 @@ local clientlib = {}
 
 clientlib.protocol = "SHREKSTORAGE"
 
-local hid, modem
+local hid, modem, hmn
 hid = sset.get(sset.hid)
+hmn = sset.get(sset.hmn)
 
 local logger
 local function log(s, ...)
@@ -18,6 +19,14 @@ function clientlib.setLogger(l)
     logger = l
 end
 
+local serverStates = {
+    MISSING = "MISSING",
+    UNKNOWN = "UNKNOWN",
+    CONNECTED = "CONNECTED",
+    STARTING = "STARTING"
+}
+local serverState = serverStates.UNKNOWN
+local scanStatus = {}
 local throbberStates = { "\129", "\130", "\132", "\136" }
 local ackThrobberStates = throbberStates
 -- local ackThrobberStates = { "\x85", "\x83", "\x8a", "\x8c" }
@@ -26,7 +35,8 @@ local ackThrobberStates = throbberStates
 --{ "\186", "\7" }
 --{ "|", "/", "-", "\\" }
 local rednetTimeout = 0.3
-local maxTimeouts = 10     -- 10 * 0.2 = 3 seconds
+local maxTimeouts = 2      -- 2 * 0.2 = 0.4 seconds
+local maxRounds = 3        -- 3 failures before giving up.
 local maxAckTimeouts = 100 -- 100 * 0.2 = 30 seconds
 
 clientlib.throbberState = " "
@@ -66,19 +76,21 @@ local function getUid()
     return uid
 end
 
+---@return table|number|boolean?
 local function sendAndRecieve(msg)
     local id = getUid()
     msg.id = id
     log("Sent request %d type=%s", id, msg.type)
     rednet.send(hid, msg, clientlib.protocol)
-    local tries = 0
-    local r = 0
+    local timeouts = 0
+    local rounds = 0
     local gotAck = false
     while true do
-        showThrobber(throbberTick, gotAck)
+        -- showThrobber(throbberTick, gotAck)
         local sender, response = rednet.receive(clientlib.protocol, rednetTimeout)
         if sender == hid and type(response) == "table"
             and response.side == "server" and response.id == id then
+            serverState = serverStates.CONNECTED
             if response.type == msg.type then
                 clientlib.throbberState = " "
                 log("Got response for %d", id)
@@ -90,15 +102,24 @@ local function sendAndRecieve(msg)
                 error(("Got error from server while processing request:\n%s"):format(response.error), 0)
             end
         elseif sender == nil then
-            tries = tries + 1
+            timeouts = timeouts + 1
         end
-        if tries > maxTimeouts and not gotAck then
-            r = r + 1
-            tries = 0
+        if timeouts > maxTimeouts and not gotAck then
+            rounds = rounds + 1
+            if rounds > maxRounds then
+                serverState = serverStates.MISSING
+                return
+            end
+            timeouts = 0
             log("Resending request %d", id)
             rednet.send(hid, msg, clientlib.protocol)
-        elseif tries > maxAckTimeouts and gotAck then
+        elseif timeouts > maxAckTimeouts and gotAck then
             gotAck = false
+            -- TODO recognize server crashes?
+            if serverState == serverStates.MISSING then
+                return
+            end
+            serverState = serverStates.MISSING
             log("ACK expired for %d", id)
         end
     end
@@ -107,19 +128,19 @@ end
 ---List out items in this storage
 ---@return CCItemInfo[]
 function clientlib.list()
-    return sendAndRecieve({ type = "list", side = "client" })[1]
+    return (sendAndRecieve({ type = "list", side = "client" }) or { {} })[1]
 end
 
 ---List out the Recipes this storage has
 ---@return RecipeInfo[]
 function clientlib.listRecipes()
-    return sendAndRecieve({ type = "listRecipes", side = "client" })[1]
+    return (sendAndRecieve({ type = "listRecipes", side = "client" }) or { {} })[1]
 end
 
 ---Get the usage of each real slot in the inventory as a percentage [0,1]. Non-stackable items have a value of 2.
 ---@return FragMap
 function clientlib.getFragMap()
-    return sendAndRecieve({ type = "getFragMap", side = "client" })[1]
+    return (sendAndRecieve({ type = "getFragMap", side = "client" }) or { {} })[1]
 end
 
 ---Remove an inventory from the system's cache
@@ -142,7 +163,7 @@ function clientlib.pushItems(to, item, limit, toSlot)
         item = item:serialize(),
         limit = limit,
         toSlot = toSlot
-    })
+    }) or 0
 end
 
 ---@param from string
@@ -157,13 +178,13 @@ function clientlib.pullItems(from, slot, limit)
         from = from,
         slot = slot,
         limit = limit
-    })
+    }) or { 0, "" }
     return res[1], res[2]
 end
 
 ---@return TaskListInfo[]
 function clientlib.listTasks()
-    local res = sendAndRecieve({ type = "listThreads" })
+    local res = sendAndRecieve({ type = "listThreads" }) or { {} }
     return res[1]
 end
 
@@ -172,13 +193,30 @@ function clientlib.rebootAll()
     os.reboot()
 end
 
+function clientlib.forceRebootServer()
+    if hmn then
+        local c = peripheral.wrap(hmn)
+        if not c then
+            error(("Could not force reboot the server, peripheral %s does not exist."):format(hmn))
+        end
+        c.reboot()
+        serverState = serverStates.UNKNOWN
+    else
+        error("Cannot call forceRebootServer without knowing the server's attachment name.")
+    end
+end
+
 ---Import a JSON recipe into this storage
 function clientlib.importJSON(json)
-    sendAndRecieve({ type = "importJSON", json = json })
+    return sendAndRecieve({ type = "importJSON", json = json })
 end
 
 function clientlib.saveRecipes()
-    sendAndRecieve({ type = "saveRecipes" })
+    return sendAndRecieve({ type = "saveRecipes" })
+end
+
+function clientlib.ping()
+    return sendAndRecieve({ type = "ping" })
 end
 
 function clientlib.open()
@@ -187,16 +225,17 @@ function clientlib.open()
     end) --[[@as WiredModem]]
     clientlib.modem = modem
     rednet.open(peripheral.getName(modem))
-    local i = 0
     local ofg, obg = ui.color(term, ui.colmap.listFg, ui.colmap.listBg)
     term.clear()
     term.setCursorPos(1, 1)
     ui.color(term, ui.colmap.headerFg, ui.colmap.headerBg)
     term.clearLine()
     term.write("Searching for Storage")
+    local serverAlive = false
     parallel.waitForAny(function()
         while not hid do
             hid = rednet.lookup(clientlib.protocol)
+            serverAlive = hid ~= nil
         end
     end, function()
         while true do
@@ -210,34 +249,30 @@ function clientlib.open()
     term.clearLine()
     term.write("Found Storage")
     ui.color(term, ofg, obg)
+    serverState = serverAlive and serverStates.CONNECTED or serverStates.UNKNOWN
 end
 
----@param f fun(l:CCItemInfo[],fragMap:FragMap)
-function clientlib.subscribeToChanges(f)
-    while true do
-        local sender, msg = rednet.receive(clientlib.protocol)
-        if sender == hid and type(msg) == "table" and msg.type == "inventoryChange" then
-            f(msg.list, msg.fragMap)
-        end
-    end
-end
+---@class ClientSubscriptions
+---@field changes fun(l:CCItemInfo[],fragMap:FragMap)? Called when the inventory contents change
+---@field start fun(l:CCItemInfo[],fragMap:FragMap)? Called when the server finishes starting
+---@field tasks fun(l:TaskListInfo[])? Called when the s erver publishes a list of running tasks
+---@field progress fun(stage:string,total:integer,scanned:integer,eta:number,etaStr:string)? Called while the server is starting with progress information
 
----@param f fun(l:CCItemInfo[],fragMap:FragMap)
-function clientlib.subscribeToServerStart(f)
+---Register a subscriber to various messages published by the server
+---@param subs ClientSubscriptions
+function clientlib.subscribeTo(subs)
     while true do
         local sender, msg = rednet.receive(clientlib.protocol)
-        if sender == hid and type(msg) == "table" and msg.type == "serverStart" then
-            f(msg.list, msg.fragMap)
-        end
-    end
-end
-
----@param f fun(l:TaskListInfo[])
-function clientlib.subscribeToTasks(f)
-    while true do
-        local sender, msg = rednet.receive(clientlib.protocol)
-        if sender == hid and type(msg) == "table" and msg.type == "taskUpdate" then
-            f(msg.list)
+        if sender == hid and type(msg) == "table" then
+            if msg.type == "inventoryChange" and subs.changes then
+                subs.changes(msg.list, msg.fragMap)
+            elseif msg.type == "serverStart" and subs.start then
+                subs.start(msg.list, msg.fragMap)
+            elseif msg.type == "taskUpdate" and subs.tasks then
+                subs.tasks(msg.list)
+            elseif msg.type == "scanProgress" and subs.progress then
+                subs.progress(msg.stage, msg.total, msg.scanned, msg.eta, msg.etaStr)
+            end
         end
     end
 end
@@ -246,13 +281,55 @@ function clientlib.close()
     modem.closeAll()
 end
 
+local function getTenths(n)
+    local ten = n * 10
+    return ten - math.floor(ten)
+end
+
+---@param win ccTweaked.Window
+function clientlib.drawStatus(win)
+    local s = "MISSING"
+    if serverState == serverStates.STARTING then
+        s = "SCANNING"
+        local p = scanStatus.scanned / scanStatus.total
+        local w = 8
+        local ps = ("\127"):rep(math.floor(w * p))
+        if p < 1 and getTenths(p) > 0.5 then
+            ps = ps .. "\149"
+        end
+        ps = ps .. (" "):rep(w - #ps)
+        s = scanStatus.stage .. ("[%s]"):format(ps)
+    elseif serverState == serverStates.CONNECTED then
+        s = "CONNNECTED"
+    elseif serverState == serverStates.UNKNOWN then
+        s = "UNKNOWN"
+    end
+    local w, h = win.getSize()
+    win.setCursorPos(w - #s + 1, 1)
+    win.write(s)
+end
+
 ---Update the throbber animation state
 clientlib.run = function()
     parallel.waitForAny(tickThrobber, function()
         while true do
             local sender, message = rednet.receive(clientlib.protocol)
-            if type(message) == "table" and message.type == "rebootAll" then
-                os.reboot()
+            if type(message) == "table" then
+                if message.type == "rebootAll" then
+                    os.reboot()
+                elseif message.type == "scanProgress" then
+                    serverState = serverStates.STARTING
+                    scanStatus.stage = message.stage --[[@as string]]
+                    scanStatus.total = message.total --[[@as integer]]
+                    scanStatus.scanned = message.scanned --[[@as integer]]
+                    scanStatus.eta = message.eta --[[@as number]]
+                    scanStatus.etaStr = message.etaStr --[[@as number]]
+                elseif message.type == "serverStart" then
+                    serverState = serverStates.CONNECTED
+                elseif message.type == "inventoryChange" or message.type == "taskUpdate" then
+                    -- heartbeat of the server
+                    serverState = serverStates.CONNECTED
+                end
             end
         end
     end)

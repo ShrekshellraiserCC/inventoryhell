@@ -43,6 +43,7 @@ return {
             x = "w-5",
             y = "h",
             text = "Quit",
+            on_click = "$quit$"
         },
         {
             type = "Button",
@@ -53,7 +54,8 @@ return {
             z = 3,
             text = "Power",
             pressed = "$power_menu_open$",
-            toggle = true
+            toggle = true,
+            key = "tab"
         },
         {
             type = "Frame",
@@ -70,7 +72,8 @@ return {
                     y = 1,
                     h = 3,
                     w = "w",
-                    text = "Reboot All"
+                    text = "Reboot All",
+                    on_click = "$capi.rebootAll$"
                 },
                 {
                     type = "Button",
@@ -78,7 +81,8 @@ return {
                     y = 4,
                     h = 3,
                     w = "w",
-                    text = "Reboot Server"
+                    text = "Force Reboot Server",
+                    on_click = "$capi.forceRebootServer$"
                 },
                 {
                     type = "Button",
@@ -86,7 +90,25 @@ return {
                     y = 7,
                     h = 3,
                     w = "w",
-                    text = "Reboot This"
+                    text = "Reboot This",
+                    on_click = "$reboot$"
+                }
+            }
+        },
+        {
+            type = "Frame",
+            x = "w-9",
+            y = 1,
+            w = 8,
+            h = 3,
+            z = 1.9,
+            hidden = true,
+            content = {
+                {
+                    type = "Button",
+                    toggle = true,
+                    pressed = "$debug_overlay$",
+                    text = "Debug Overlay"
                 }
             }
         }

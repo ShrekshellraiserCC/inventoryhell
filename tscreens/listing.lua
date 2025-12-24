@@ -1,3 +1,22 @@
+_ENV = _ENV --[[@as SSDTermPluginENV]]
+
+local function item_select(self, item, idx)
+    ---@cast self Screen
+    _ENV.item = item
+    _ENV.item.detail = nil
+    _ENV.item.detail = textutils.serialize(item)
+    _ENV.tapi.open_screen("request")
+end
+
+
+local function toggle_craft_button(self)
+    _ENV.tapi.lock_inventory(_ENV.craft_active)
+    if not _ENV.craft_active then
+        _ENV.tapi.clear_reserved_slots()
+        _ENV.tapi.lock_inventory(false)
+    end
+end
+
 return {
     type = "Screen",
     content = {
@@ -35,7 +54,7 @@ return {
             x = 5,
             y = "h",
             h = 1,
-            w = "w-(turtle and 10 or 4)",
+            w = "w-((turtle and turtle.craft) and 10 or 4)",
             ignore_focus = true,
             always_update = true,
             on_change = "$search_change$",
@@ -45,7 +64,7 @@ return {
             type = "Frame",
             x = 1,
             y = "h-5",
-            w = "w-(turtle and 11 or 0)",
+            w = "w-((turtle and turtle.craft) and 11 or 0)",
             h = "5",
             hidden = "$not search_options$",
             z = 3,
@@ -66,8 +85,8 @@ return {
             text = "Craft",
             toggle = true,
             pressed = "$craft_active$",
-            on_click = "$open_craft_button$",
-            hidden = "$not turtle$"
+            on_click = toggle_craft_button,
+            hidden = "$not (turtle and turtle.craft)$"
         },
         {
             type = "Table",
@@ -89,7 +108,7 @@ return {
                     "Name"
                 }
             },
-            on_select = "$item_select$"
+            on_select = item_select
         },
         {
             type = "Frame",

@@ -366,13 +366,19 @@ local function Scheduler()
         -- print("POST", #executingThreads)
     end
 
+    local running
     function run.run()
         os.queueEvent("dummy")
-        while true do
+        running = true
+        while running do
             -- debugOverlay()
             local e = table.pack(os.pullEvent())
             tick(e)
         end
+    end
+
+    function run.stop()
+        running = false
     end
 
     ---@class TaskListInfo
