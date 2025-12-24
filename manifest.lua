@@ -5,9 +5,9 @@ return {
         "clientlib.lua",
         "Coordinates.lua",
         "ItemDescriptor.lua",
-        ["shrekbox.lua"] = "", -- TODO
-        ["shrekdraw.lua"] = "",
-        ["shrekui.lua"] = "",
+        ["shrekbox.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekbox.lua",
+        ["shrekdraw.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekdraw.lua",
+        ["shrekui.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/ui.lua",
         "shrexpect.lua",
         "sset.lua",
         "ui.lua",
