@@ -32,7 +32,7 @@ return {
         "menu.lua",
         "request.lua",
         "setting_edit.lua",
-        "setting.lua",
+        "settings.lua",
         "tasks.lua"
     },
     "crafter.lua",
