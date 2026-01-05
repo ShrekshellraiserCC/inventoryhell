@@ -72,7 +72,7 @@ end
 
 function ui.applyPallete(dev)
     for color, code in pairs(themePalette) do
-        dev.setPaletteColor(colors[color], code)
+        -- dev.setPaletteColor(colors[color], code)
     end
 end
 

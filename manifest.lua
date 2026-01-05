@@ -14,11 +14,10 @@ return {
         "VirtualInv.lua"
     },
     cplugins = {
-        "furnace.lua"
+        "furnaces.lua"
     },
     themes = {
-        "aqua.lua",
-        "gnome.lua"
+        "gnome.sthm"
     },
     tplugins = {
         "fragmap.lua",
@@ -30,13 +29,10 @@ return {
     tscreens = {
         "listing.lua",
         "menu.lua",
-        "request.lua",
-        "setting_edit.lua",
         "settings.lua",
         "tasks.lua"
     },
     "crafter.lua",
-    "fragmap.lua",
     "host.lua",
     "nsetup.lua",
     "nterm.lua",

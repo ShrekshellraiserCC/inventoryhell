@@ -1,4 +1,3 @@
-local ui = require "libs.ui"
 local sset = require "libs.sset"
 local clientlib = {}
 
@@ -39,27 +38,46 @@ local maxTimeouts = 2      -- 2 * 0.2 = 0.4 seconds
 local maxRounds = 3        -- 3 failures before giving up.
 local maxAckTimeouts = 100 -- 100 * 0.2 = 30 seconds
 
-clientlib.throbberState = " "
-clientlib.throbberFg = ui.colmap.headerFg
+local throbberState = " "
+clientlib.statusString = "UNKNOWN"
+
 
 local function getThrobberChar(i, gotAck)
     return gotAck and ackThrobberStates[(i % #ackThrobberStates) + 1]
         or throbberStates[(i % #throbberStates) + 1]
 end
 
----Show an activity throbber in the corner
-local function showThrobber(i, gotAck)
-    clientlib.throbberState = getThrobberChar(i, gotAck)
-    clientlib.throbberFg = gotAck and ui.colmap.headerFg or ui.colmap.errorFg
-    clientlib.renderThrobber(term)
+
+local function getTenths(n)
+    local ten = n * 10
+    return ten - math.floor(ten)
 end
-function clientlib.renderThrobber(win)
-    local w, h = win.getSize()
-    local ox, oy = ui.cursor(win, w, 1)
-    local ofg, obg = ui.color(win, clientlib.throbberFg, ui.colmap.headerBg)
-    win.write(clientlib.throbberState)
-    ui.color(win, ofg, obg)
-    ui.cursor(win, ox, oy)
+
+clientlib.statusWidth = 16
+local function updateStatusString()
+    local s = "MISSING"
+    if serverState == serverStates.STARTING then
+        s = "SCANNING"
+        local p = scanStatus.scanned / scanStatus.total
+        local w = clientlib.statusWidth - 8
+        local ps = ("\127"):rep(math.floor(w * p))
+        if p < 1 and getTenths(p) > 0.5 then
+            ps = ps .. "\149"
+        end
+        ps = ps .. (" "):rep(w - #ps)
+        s = scanStatus.stage .. ("[%s]"):format(ps)
+    elseif serverState == serverStates.CONNECTED then
+        s = "CONNNECTED"
+    elseif serverState == serverStates.UNKNOWN then
+        s = "UNKNOWN"
+    end
+    clientlib.statusString = (s .. throbberState):sub(-clientlib.statusWidth)
+end
+
+---Show an activity throbber in the corner
+local function updateThrobberStatus(i, gotAck)
+    throbberState = getThrobberChar(i, gotAck)
+    updateStatusString()
 end
 
 local throbberTick = 0
@@ -88,12 +106,15 @@ local function sendAndRecieve(msg)
     while true do
         -- showThrobber(throbberTick, gotAck)
         local sender, response = rednet.receive(clientlib.protocol, rednetTimeout)
+        throbberTick = throbberTick + 1
+        updateThrobberStatus(throbberTick)
         if sender == hid and type(response) == "table"
             and response.side == "server" and response.id == id then
             serverState = serverStates.CONNECTED
             if response.type == msg.type then
-                clientlib.throbberState = " "
+                throbberState = " "
                 log("Got response for %d", id)
+                updateStatusString()
                 return response.result
             elseif response.type == "ACK" and response.ftype == msg.type then
                 gotAck = true
@@ -108,6 +129,9 @@ local function sendAndRecieve(msg)
             rounds = rounds + 1
             if rounds > maxRounds then
                 serverState = serverStates.MISSING
+                throbberState = "?"
+                updateStatusString()
+                log("Gave up sending request %d", id)
                 return
             end
             timeouts = 0
@@ -117,11 +141,13 @@ local function sendAndRecieve(msg)
             gotAck = false
             -- TODO recognize server crashes?
             if serverState == serverStates.MISSING then
+                updateStatusString()
                 return
             end
             serverState = serverStates.MISSING
             log("ACK expired for %d", id)
         end
+        updateStatusString()
     end
 end
 
@@ -225,12 +251,7 @@ function clientlib.open()
     end) --[[@as WiredModem]]
     clientlib.modem = modem
     rednet.open(peripheral.getName(modem))
-    local ofg, obg = ui.color(term, ui.colmap.listFg, ui.colmap.listBg)
-    term.clear()
-    term.setCursorPos(1, 1)
-    ui.color(term, ui.colmap.headerFg, ui.colmap.headerBg)
-    term.clearLine()
-    term.write("Searching for Storage")
+    clientlib.statusString = "Searching..."
     local serverAlive = false
     parallel.waitForAny(function()
         while not hid do
@@ -240,15 +261,11 @@ function clientlib.open()
     end, function()
         while true do
             throbberTick = throbberTick + 1
-            showThrobber(throbberTick)
+            updateThrobberStatus(throbberTick)
             sleep(throbberInterval)
         end
     end)
-    ui.color(term, ui.colmap.headerFg, ui.colmap.headerBg)
-    term.setCursorPos(1, 1)
-    term.clearLine()
-    term.write("Found Storage")
-    ui.color(term, ofg, obg)
+    clientlib.statusString = "Found!"
     serverState = serverAlive and serverStates.CONNECTED or serverStates.UNKNOWN
 end
 
@@ -279,34 +296,6 @@ end
 
 function clientlib.close()
     modem.closeAll()
-end
-
-local function getTenths(n)
-    local ten = n * 10
-    return ten - math.floor(ten)
-end
-
----@param win ccTweaked.Window
-function clientlib.drawStatus(win)
-    local s = "MISSING"
-    if serverState == serverStates.STARTING then
-        s = "SCANNING"
-        local p = scanStatus.scanned / scanStatus.total
-        local w = 8
-        local ps = ("\127"):rep(math.floor(w * p))
-        if p < 1 and getTenths(p) > 0.5 then
-            ps = ps .. "\149"
-        end
-        ps = ps .. (" "):rep(w - #ps)
-        s = scanStatus.stage .. ("[%s]"):format(ps)
-    elseif serverState == serverStates.CONNECTED then
-        s = "CONNNECTED"
-    elseif serverState == serverStates.UNKNOWN then
-        s = "UNKNOWN"
-    end
-    local w, h = win.getSize()
-    win.setCursorPos(w - #s + 1, 1)
-    win.write(s)
 end
 
 ---Update the throbber animation state

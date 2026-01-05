@@ -1,0 +1,53 @@
+!map {
+    nord0 = black
+    nord1 = lightGray
+    nord2 = gray
+    nord3 = orange
+    nord4 = yellow
+    nord5 = cyan
+    nord6 = white
+}
+
+!palette {
+    nord0 = 0x2e3440
+    nord1 = 0x3b4252
+    nord2 = 0x434c5e
+    nord3 = 0x4c566a
+
+    nord4 = 0xd8dee9
+    nord5 = 0xe5e9f0
+    nord6 = 0xeceff4
+    red = 0xbf515a
+}
+
+
+* {
+    fill_color = nord0
+    fill_color:pressed = nord5
+    header_color = nord2
+}
+
+Button {
+    fill_color = nord1
+}
+
+Dropdown {
+    fill_color = nord1
+}
+
+.heading {
+    fill_color = nord1
+}
+
+.submenu {
+    border_thickness = 1
+    border_layer = px
+}
+
+.clear {
+    fill_color = red
+}
+
+Input {
+    fill_color = nord1
+}

@@ -1,4 +1,5 @@
-return {
+_ENV = _ENV --[[@as SSDTermPluginENV]]
+_ENV.tapi.register_screen("menu", {
     type = "Screen",
     content = {
         {
@@ -6,10 +7,7 @@ return {
             h = 1,
             text = "nterm",
             horizontal_alignment = "left",
-            id = "header",
-            theme = {
-                { "fill_color", "blue" }
-            }
+            class = "heading"
         },
         {
             type = "Button",
@@ -64,6 +62,7 @@ return {
             w = "w",
             h = 11,
             z = 2,
+            class = "submenu",
             hidden = "$not power_menu_open$",
             content = {
                 {
@@ -98,19 +97,19 @@ return {
         {
             type = "Frame",
             x = "w-9",
-            y = 1,
+            y = 2,
             w = 8,
             h = 3,
             z = 1.9,
             hidden = true,
+            layout = "h",
             content = {
                 {
                     type = "Button",
-                    toggle = true,
-                    pressed = "$debug_overlay$",
-                    text = "Debug Overlay"
+                    text = "Debug Overlay",
+                    on_click = "$function() capi.list() end$"
                 }
             }
         }
     }
-}
+})

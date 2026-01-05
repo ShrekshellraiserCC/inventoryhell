@@ -28,12 +28,7 @@ if turtle then
     turtle.select(16)
 end
 
-local theme               = {
-    { "Frame/border_thickness", 1 },
-    { "Frame/border_layer",     "px" },
-    { "fill_color:pressed",     "orange" },
-    { "Dropdown/fill_color",    "blue" },
-}
+ui.load_global_theme(sset.getInstalledPath(sset.get(sset.theme)))
 
 ---@type table<number,boolean>
 local lockedTurtleSlots   = {}
@@ -198,12 +193,32 @@ end
 ---@type table<string,Screen>
 local screens = {}
 ---@param name string
----@param path string
-local function register_screen(name, path)
-    local screen = ui.load_screen_lua(sset.getInstalledPath(path), env)
+---@param layout table
+local function register_screen(name, layout)
+    layout.content[#layout.content + 1] = {
+        type = "Text",
+        x = "w+1-" .. env.capi.statusWidth,
+        y = 1,
+        w = env.capi.statusWidth,
+        h = 1,
+        z = 1,
+        class = "heading",
+        horizontal_alignment = "right",
+        text = "$capi.statusString$"
+    }
+    layout.content[#layout.content + 1] = {
+        type = "Text",
+        x = 1,
+        y = 1,
+        w = "w",
+        h = 1,
+        z = -1,
+        class = "heading",
+        text = ""
+    }
+    local screen = ui.load_screen(layout, env)
     screens[name] = screen
     screen.meta = name
-    screen._theme:append(theme)
     return screen
 end
 tapi.register_screen = register_screen
@@ -246,7 +261,6 @@ local function ui_render_loop()
         -- b.profiler.collapse("shrekbox", false)
         win.setTextColor(colors.white)
         win.setBackgroundColor(colors.blue)
-        clientlib.drawStatus(win)
         win.setVisible(true)
         -- b.profiler.start_yield("sleep")
         repeat until select(2, os.pullEvent("timer")) == tid
@@ -254,6 +268,9 @@ local function ui_render_loop()
     end
 end
 
+clientlib.setLogger(function(s, ...)
+    env.logged = s:format(...)
+end)
 
 if turtle then
     scheduler.queueTask(STL.Task.new({
@@ -282,13 +299,17 @@ local function init()
     apply_sort("")
 end
 
-register_screen("listing", "tscreens/listing.lua")
-register_screen("request", "tscreens/request.lua")
-register_screen("tasks", 'tscreens/tasks.lua')
-register_screen("settings", "tscreens/settings.lua")
-register_screen("menu", "tscreens/menu.lua")
-register_screen("setting_edit", "tscreens/setting_edit.lua")
-register_screen("setting_reboot", "tscreens/setting_reboot.lua")
+local function load_screen(fn)
+    local f = assert(fs.open(sset.getInstalledPath(fn), "r"))
+    local s = f.readAll()
+    f.close()
+    assert(load(s, fn, "t", env))()
+end
+
+load_screen("tscreens/listing.lua")
+load_screen('tscreens/tasks.lua')
+load_screen("tscreens/settings.lua")
+load_screen("tscreens/menu.lua")
 current_screen = screens.menu
 
 scheduler.queueTask(STL.Task.new({

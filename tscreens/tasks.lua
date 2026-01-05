@@ -1,4 +1,6 @@
-return {
+_ENV = _ENV --[[@as SSDTermPluginENV]]
+
+_ENV.tapi.register_screen("tasks", {
     type = "Screen",
     content = {
         {
@@ -51,4 +53,4 @@ return {
             },
         }
     }
-}
+})

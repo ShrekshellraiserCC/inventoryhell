@@ -116,6 +116,11 @@ local function apply_host_setting(h)
         end
     end
     sset.set(sset.hmn, modem.getNameLocal())
+    if fs.exists("startup.lua") then
+        if show_confirm_screen("The file startup.lua already exists, do you want to overwrite this?", "Yes", "No") then
+            fs.delete("startup.lua")
+        end
+    end
     if not fs.exists("startup.lua") then
         fs.copy(sset.getInstalledPath "pstartup.lua", "startup.lua")
     end
@@ -123,7 +128,7 @@ local function apply_host_setting(h)
 end
 
 if sset.get(sset.hid) == nil or true then
-    local h = prompt_host(false)
+    local h = prompt_host(true)
     if h then
         apply_host_setting(h)
         exit_message()

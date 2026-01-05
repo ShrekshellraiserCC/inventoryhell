@@ -107,6 +107,8 @@ end
 function api.do_install(write)
     assert(type(manifest) == "table", "Invalid Manifest!")
     install_dir("", manifest, write)
+    local sset = require "libs.sset"
+    sset.set(sset.version, api.get_hash())
 end
 
 api.get_hash = get_hash

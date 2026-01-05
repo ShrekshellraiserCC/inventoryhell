@@ -113,6 +113,8 @@ local function setraw(name, value, loc, lset)
         -- Intentionally a separate if-statement
         if isIn(s.options, value) then
             svalue = value
+        elseif value == nil then
+            svalue = value
         end
     elseif type(value) == s.type or value == nil then
         svalue = value
@@ -264,7 +266,7 @@ sset.scrollDelay = registerSetting("ui:scrollDelay", "Horizontal Text Scrolling 
 sset.theme = registerSetting("ui:theme", [[
 Color theme to use for UIs as path to .lua theme file.
 Invalid paths reset to default palette.
-]], "string", sset.getInstalledPath "themes/gnome.lua", true, "both")
+]], "string", sset.getInstalledPath "themes/gnome.sthm", true, "both")
 sset.unlockMouse = registerSetting("ui:unlockMouse", [[
 Unlock the mouse scroll from UI list selection position.
 ]], "boolean", true, true, "both")
