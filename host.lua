@@ -2,19 +2,12 @@ local acl = require("libs.ACL")
 local ID = require("libs.ItemDescriptor")
 local stl = require("libs.STL")
 local sset = require("libs.sset")
-local ui = require("libs.ui")
+local shrekui = require("libs.shrekui")
 local VirtualInv = require("libs.VirtualInv")
 local network = rednet -- TODO swap this for a custom impl
 
 local protocol = require("libs.clientlib").protocol
 local hostname = "HOST_TEST"
--- Central host process for the storage system
----@alias Modem ccTweaked.peripherals.Modem
-local modem = peripheral.find("modem", function(name, wrapped)
-    return not wrapped.isWireless()
-end) --[[@as ccTweaked.peripherals.Modem]]
-network.open(peripheral.getName(modem))
-rednet.host(protocol, hostname) -- TODO change this with custom impl
 
 local id = os.getComputerID()
 local function broadcast(m)
@@ -28,254 +21,316 @@ for i, v in ipairs({ peripheral.find("inventory") }) do
     chestList[#chestList + 1] = peripheral.getName(v)
     -- end
 end
-local t0 = os.epoch("utc")
-local tracker = VirtualInv.defaultTracker()
----@type ACL
-local inv
+
+
+local args = { ... }
+local beingRequired = #args == 2 and type(package.loaded[args[1]]) == "table" and not next(package.loaded[args[1]])
 
 local w, h = term.getSize()
-ui.loadTheme(sset.get(sset.theme))
-ui.applyPallete(term)
-local headWin = window.create(term.current(), 1, 1, w, 1)
-local logWin = window.create(term.current(), 1, 2, w, h - 2)
-local footerWin = window.create(term.current(), 1, h, w, 1)
+local wenv = {
+    fstr = "Initial Setup..."
+}
+shrekui.load_global_theme(sset.getInstalledPath(sset.get(sset.theme)))
+local win = window.create(term.current(), 1, 1, w, h)
 
-ui.preset(headWin, ui.presets.header)
-ui.preset(logWin, ui.presets.list)
-ui.preset(footerWin, ui.presets.footer)
-logWin.clear()
-logWin.setCursorPos(1, 1)
-term.redirect(logWin)
 
-ui.header(headWin, "ShrekStorageDrive INDEV")
-parallel.waitForAny(
-    function()
-        inv = acl.wrap(chestList, modem, tracker)
-    end,
-    function()
-        while true do
-            footerWin.clear()
-            local t1 = os.epoch("utc")
-            local invScanning = tracker.totalInvs ~= tracker.invsScanned
-            local total = tracker.totalSlots
-            local scanned = tracker.slotsScanned
-            local stage = "2/3"
-            if tracker.totalInvs ~= tracker.invsScanned then
-                -- We are scanning inventories
-                stage = "1/3"
-                total = tracker.totalInvs
-                scanned = tracker.invsScanned
-            elseif tracker.totalSlots == 0 then
-                -- We haven't started processing yet
-                stage = "0/3"
-            elseif tracker.totalSlots == tracker.slotsScanned then
-                -- We are currently defragging!
-                stage = "3/3"
-                total = tracker.totalItems
-                scanned = tracker.itemsDefragged
+local screenArgs = {
+    type = "Screen",
+    content = {
+        {
+            type = "Text",
+            h = 1,
+            class = "heading",
+            text = "ShrekStorageDrive INDEV"
+        },
+        {
+            type = "Log",
+            y = 2,
+            h = "h-2",
+            class = "log"
+        },
+        {
+            type = "Text",
+            h = 1,
+            y = "h",
+            class = "heading",
+            text = "$fstr$",
+            x = beingRequired and 2 or 1,
+            w = beingRequired and "w - 1" or "w",
+            horizontal_alignment = "left"
+        }
+    }
+}
+local screen = shrekui.load_screen(screenArgs, wenv)
+local log = screen:get_widget_by_class("log", 1) --[[@as Log]]
+
+
+
+local function getTenths(n)
+    local ten = n * 10
+    return ten - math.floor(ten)
+end
+---Draw a progress bar
+---@param w integer
+---@param p number [0,1] percentage
+local function progressBar(w, p)
+    if p ~= p then p = 0 end
+    w = w - 2
+    local s = ("\127"):rep(math.floor(w * p))
+    if p < 1 and getTenths(p) > 0.5 then
+        s = s .. "\149"
+    end
+    s = s .. (" "):rep(w - #s)
+    return s
+end
+
+local function main()
+    -- Central host process for the storage system
+    ---@alias Modem ccTweaked.peripherals.Modem
+    local modem = peripheral.find("modem", function(name, wrapped)
+        return not wrapped.isWireless()
+    end) --[[@as ccTweaked.peripherals.Modem]]
+    network.open(peripheral.getName(modem))
+    rednet.host(protocol, hostname) -- TODO change this with custom impl
+
+    local t0 = os.epoch("utc")
+    local tracker = VirtualInv.defaultTracker()
+    ---@type ACL
+    local inv
+
+    parallel.waitForAny(
+        function()
+            inv = acl.wrap(chestList, modem, tracker, function(s) log:log(s) end)
+        end,
+        function()
+            while true do
+                local t1 = os.epoch("utc")
+                local invScanning = tracker.totalInvs ~= tracker.invsScanned
+                local total = tracker.totalSlots
+                local scanned = tracker.slotsScanned
+                local stage = "2/3"
+                if tracker.totalInvs ~= tracker.invsScanned then
+                    -- We are scanning inventories
+                    stage = "1/3"
+                    total = tracker.totalInvs
+                    scanned = tracker.invsScanned
+                elseif tracker.totalSlots == 0 then
+                    -- We haven't started processing yet
+                    stage = "0/3"
+                elseif tracker.totalSlots == tracker.slotsScanned then
+                    -- We are currently defragging!
+                    stage = "3/3"
+                    total = tracker.totalItems
+                    scanned = tracker.itemsDefragged
+                end
+                local remaining = (total - scanned)
+                if total == 0 then total = 1 end
+                local percentage = scanned / total
+                local eta = math.ceil((t1 - t0) * (1 / (percentage) - 1) / 1000)
+                local etaStr = ("%s:%3ss"):format(stage, eta)
+                if eta > 1000 then
+                    etaStr = ("%s:---s"):format(stage)
+                end
+                wenv.fstr = etaStr .. progressBar(w - #etaStr, percentage)
+                -- ui.cursor(footerWin, 1, 1)
+                -- footerWin.write(etaStr)
+                -- ui.progressBar(footerWin, sw + 2, 1, w - sw + 1, percentage)
+                broadcast({
+                    type = "scanProgress",
+                    stage = stage,
+                    total = total,
+                    scanned = scanned,
+                    eta = eta,
+                    etaStr = etaStr
+                })
+                sleep(0)
             end
-            local remaining = (total - scanned)
-            if total == 0 then total = 1 end
-            local percentage = scanned / total
-            local eta = math.ceil((t1 - t0) * (1 / (percentage) - 1) / 1000)
-            local etaStr = ("%s:%3ss"):format(stage, eta)
-            if eta > 1000 then
-                etaStr = ("%s:---s"):format(stage)
-            end
-            local sw = #etaStr
-            ui.cursor(footerWin, 1, 1)
-            footerWin.write(etaStr)
-            ui.progressBar(footerWin, sw + 2, 1, w - sw + 1, percentage)
-            broadcast({
-                type = "scanProgress",
-                stage = stage,
-                total = total,
-                scanned = scanned,
-                eta = eta,
-                etaStr = etaStr
-            })
-            sleep(0)
+        end
+    )
+    wenv.fstr = "Initialization Complete"
+    local initTime = os.epoch("utc") - t0
+    local info = inv.reserve:getSlotInfo()
+    log:flog("SSD initialized %d used (of %d total) slots in %.2f seconds", info.used, info.total, initTime / 1000)
+
+
+    local messageHandlers = {}
+
+    local function registerMessageHandler(type, handle)
+        messageHandlers[type] = handle
+    end
+    registerMessageHandler("list", function(msg)
+        return inv.reserve:list()
+    end)
+    registerMessageHandler("getFragMap", function(msg)
+        return inv.reserve:getFragMap()
+    end)
+    registerMessageHandler("pushItems", function(msg)
+        return inv.reserve:pushItems(
+            msg.to,
+            ID.unserialize(msg.item),
+            msg.limit,
+            msg.toSlot)
+    end)
+    registerMessageHandler("pullItems", function(msg)
+        return inv.reserve:pullItems(msg.from, msg.slot, msg.limit)
+    end)
+    registerMessageHandler("rebootAll", function(msg)
+        os.reboot()
+    end)
+    registerMessageHandler("listThreads", function(msg)
+        return inv.scheduler.list()
+    end)
+    registerMessageHandler("removeInventory", function(msg)
+        inv.reserve:removeInventory(msg.inv)
+        return true
+    end)
+    registerMessageHandler("listRecipes", function(msg)
+        return inv.craft.listRecipes()
+    end)
+    registerMessageHandler("importJSON", function(msg)
+        inv.craft.importJSON(msg.json)
+        return true
+    end)
+    registerMessageHandler("saveRecipes", function()
+        inv.craft.saveRecipes()
+        return true
+    end)
+
+    ---@param msg table
+    local function parseMessage(msg)
+        if type(msg) ~= "table" then return end
+        if msg.side == "server" then return end
+        if messageHandlers[msg.type] then
+            return pcall(messageHandlers[msg.type], msg)
         end
     end
-)
-local initTime = os.epoch("utc") - t0
-local info = inv.reserve:getSlotInfo()
-print(("SSD initialized %d used (of %d total) slots in %.2f seconds")
-    :format(info.used, info.total, initTime / 1000))
 
-
-local messageHandlers = {}
-
-local function registerMessageHandler(type, handle)
-    messageHandlers[type] = handle
-end
-registerMessageHandler("list", function(msg)
-    return inv.reserve:list()
-end)
-registerMessageHandler("getFragMap", function(msg)
-    return inv.reserve:getFragMap()
-end)
-registerMessageHandler("pushItems", function(msg)
-    return inv.reserve:pushItems(
-        msg.to,
-        ID.unserialize(msg.item),
-        msg.limit,
-        msg.toSlot)
-end)
-registerMessageHandler("pullItems", function(msg)
-    return inv.reserve:pullItems(msg.from, msg.slot, msg.limit)
-end)
-registerMessageHandler("rebootAll", function(msg)
-    os.reboot()
-end)
-registerMessageHandler("listThreads", function(msg)
-    return inv.scheduler.list()
-end)
-registerMessageHandler("removeInventory", function(msg)
-    inv.reserve:removeInventory(msg.inv)
-    return true
-end)
-registerMessageHandler("listRecipes", function(msg)
-    return inv.craft.listRecipes()
-end)
-registerMessageHandler("importJSON", function(msg)
-    inv.craft.importJSON(msg.json)
-    return true
-end)
-registerMessageHandler("saveRecipes", function()
-    inv.craft.saveRecipes()
-    return true
-end)
-
----@param msg table
-local function parseMessage(msg)
-    if type(msg) ~= "table" then return end
-    if msg.side == "server" then return end
-    if messageHandlers[msg.type] then
-        return pcall(messageHandlers[msg.type], msg)
+    local inventoryDirty = false
+    local taskDirty = false
+    local function broadcastChange()
+        broadcast({
+            type = "inventoryChange",
+            list = inv.reserve:list(),
+            fragMap = inv.reserve:getFragMap()
+        })
     end
-end
 
-local inventoryDirty = false
-local taskDirty = false
-local function broadcastChange()
-    broadcast({
-        type = "inventoryChange",
-        list = inv.reserve:list(),
-        fragMap = inv.reserve:getFragMap()
-    })
-end
+    local function onChanged(self)
+        inventoryDirty = true
+    end
+    inv.reserve:setChangedCallback(onChanged)
+    onChanged(inv.reserve)
 
-local function onChanged(self)
-    inventoryDirty = true
-end
-inv.reserve:setChangedCallback(onChanged)
-onChanged(inv.reserve)
+    local function onTaskChanged(self)
+        taskDirty = true
+    end
+    inv.scheduler.setChangedCallback(onTaskChanged)
+    onTaskChanged(inv.scheduler)
 
-local function onTaskChanged(self)
-    taskDirty = true
-end
-inv.scheduler.setChangedCallback(onTaskChanged)
-onTaskChanged(inv.scheduler)
+    local messageQueuedEvent = "message_queued"
 
-local messageQueuedEvent = "message_queued"
-
----@type {message:table,sender:number}[]
-local messageQueue = {}
-local function processMessageThread()
-    while true do
-        local msg = table.remove(messageQueue, 1)
-        if msg then
-            local result = table.pack(parseMessage(msg.message))
-            if #result > 0 then
-                local response = table.pack(table.unpack(result, 2))
-                if result[1] then
-                    network.send(msg.sender, {
-                            result = response,
-                            type = msg.message.type,
+    ---@type {message:table,sender:number}[]
+    local messageQueue = {}
+    local function processMessageThread()
+        while true do
+            local msg = table.remove(messageQueue, 1)
+            wenv.fstr = ("Q:%d"):format(#messageQueue)
+            if msg then
+                local result = table.pack(parseMessage(msg.message))
+                if #result > 0 then
+                    local response = table.pack(table.unpack(result, 2))
+                    if result[1] then
+                        network.send(msg.sender, {
+                                result = response,
+                                type = msg.message.type,
+                                side = "server",
+                                id = msg.message.id
+                            },
+                            protocol)
+                    else
+                        network.send(msg.sender, {
+                            type = "ERROR",
+                            error = result[2],
                             side = "server",
                             id = msg.message.id
-                        },
-                        protocol)
-                else
-                    network.send(msg.sender, {
-                        type = "ERROR",
-                        error = result[2],
-                        side = "server",
-                        id = msg.message.id
-                    }, protocol)
-                    print(("Error processing client request %s.\n%s")
-                        :format(textutils.serialise(msg.message), result[2]))
+                        }, protocol)
+                        log:flog("Error processing client request %s.\n%s", textutils.serialise(msg.message), result[2])
+                    end
                 end
+            else
+                os.pullEvent(messageQueuedEvent)
             end
-        else
-            os.pullEvent(messageQueuedEvent)
         end
     end
-end
 
-local function receieveMessageThread()
-    while true do
-        local sender, message, prot = network.receive(protocol)
-        if type(message) == "table" and message.side ~= "server" then
-            messageQueue[#messageQueue + 1] = { message = message, sender = sender }
-            os.queueEvent(messageQueuedEvent)
-            network.send(sender, {
-                type = "ACK",
-                ftype = message.type,
-                side = "server",
-                id = message.id
-            }, protocol)
-        end
-    end
-end
-
-local function inventoryChangeThread()
-    while true do
-        sleep(sset.get(sset.changeBroadcastInterval))
-        if inventoryDirty then
-            inventoryDirty = false
-            broadcastChange()
-        end
-    end
-end
-
-local function sendTaskUpdateThread()
-    while true do
-        sleep(sset.get(sset.taskBroadcastInterval))
-        if taskDirty then
-            taskDirty = false
-            broadcast({
-                type = "taskUpdate",
-                list = inv.scheduler.list(),
-            })
-        end
-    end
-end
-
-local f = {
-    receieveMessageThread,
-    inventoryChangeThread,
-    sset.checkForChangesThread,
-    sendTaskUpdateThread
-}
-local hostTask = stl.Task.new(f, "Host")
-inv.scheduler.queueTask(hostTask)
-inv.scheduler.queueTask(stl.Task.new({
-    function()
+    local function receieveMessageThread()
         while true do
-            ui.footer(footerWin, ("Q:%d"):format(#messageQueue))
-            sleep(0)
+            local sender, message, prot = network.receive(protocol)
+            if type(message) == "table" and message.side ~= "server" then
+                messageQueue[#messageQueue + 1] = { message = message, sender = sender }
+                os.queueEvent(messageQueuedEvent)
+                network.send(sender, {
+                    type = "ACK",
+                    ftype = message.type,
+                    side = "server",
+                    id = message.id
+                }, protocol)
+            end
         end
     end
-}, "Footer Display"))
 
-local mf = {}
-for i = 1, 1 do
-    mf[#mf + 1] = processMessageThread
+    local function inventoryChangeThread()
+        while true do
+            sleep(sset.get(sset.changeBroadcastInterval))
+            if inventoryDirty then
+                inventoryDirty = false
+                broadcastChange()
+            end
+        end
+    end
+
+    local function sendTaskUpdateThread()
+        while true do
+            sleep(sset.get(sset.taskBroadcastInterval))
+            if taskDirty then
+                taskDirty = false
+                broadcast({
+                    type = "taskUpdate",
+                    list = inv.scheduler.list(),
+                })
+            end
+        end
+    end
+
+    local f = {
+        receieveMessageThread,
+        inventoryChangeThread,
+        sset.checkForChangesThread,
+        sendTaskUpdateThread
+    }
+    local hostTask = stl.Task.new(f, "Host")
+    inv.scheduler.queueTask(hostTask)
+
+    local mf = {}
+    for i = 1, 1 do
+        mf[#mf + 1] = processMessageThread
+    end
+    local messageTask = stl.Task.new(mf, "Messages")
+
+    inv.scheduler.queueTask(messageTask)
+
+    inv.run()
 end
-local messageTask = stl.Task.new(mf, "Messages")
 
-inv.scheduler.queueTask(messageTask)
+if beingRequired then
+    -- running in return
+    return {
+        run = main,
+        screen = screen
+    }
+end
 
-inv.run()
+-- Running from commandline
+parallel.waitForAny(function()
+    screen:run(win)
+end, main)

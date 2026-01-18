@@ -249,7 +249,7 @@ sset.version = registerSetting(
 )
 sset.program = registerSetting(
     "boot:program", "What function does this computer serve?", "string", nil, true, "local",
-    { "host", "term", "crafter", "host+term", "nterm", "host+nterm" })
+    { "host", "term", "crafter", "host+term" })
 sset.hid = registerSetting("boot:hid", "Storage Host ID", "number", nil, true, "global")
 sset.hmn = registerSetting("boot:hmn", "Storage Host Modem Name", "string", nil, true, "global")
 sset.install_dir = registerSetting("boot:installDir", "Installation directory", "string", cwd, true, "global")
@@ -261,6 +261,12 @@ sset.termInventory = registerSetting("term:inventory", "Which inventory to use f
     true, "local")
 sset.termInventoryPoll = registerSetting("term:inventoryPoll",
     "How frequently to poll the configured inventory for changes", "number", 1, true, "local")
+sset.termItemFilters = registerSetting("term:itemFilters",
+    "Preset categories for filtering items.", "table", {
+        ["All"] = "*",
+        ["Stored"] = "#>0",
+        ["Craftables"] = "#=0"
+    }, true, "both")
 
 sset.scrollDelay = registerSetting("ui:scrollDelay", "Horizontal Text Scrolling Delay", "number", 0.15, true)
 sset.theme = registerSetting("ui:theme", [[

@@ -1,3 +1,6 @@
+local args = { ... }
+local run_host = args[1] == "+host"
+
 local listing = {
     { name = "minecraft:cobblestone", displayName = "Cobblestone", count = 1200 },
     { name = "minecraft:stone_sword", displayName = "Stone Sword", count = 15 }
@@ -192,6 +195,16 @@ end
 
 ---@type table<string,Screen>
 local screens = {}
+---@type string[]
+local screenList = {}
+---@param name string
+---@param screen Screen
+local function register_screen_raw(name, screen)
+    screens[name] = screen
+    screen.meta = name
+    screenList[#screenList + 1] = name
+    return screen
+end
 ---@param name string
 ---@param layout table
 local function register_screen(name, layout)
@@ -217,11 +230,158 @@ local function register_screen(name, layout)
         text = ""
     }
     local screen = ui.load_screen(layout, env)
-    screens[name] = screen
-    screen.meta = name
-    return screen
+    return register_screen_raw(name, screen)
 end
 tapi.register_screen = register_screen
+
+register_screen("debug", {
+    type = "Screen",
+    content = {
+        {
+            type = "Text",
+            h = 1,
+            text = "Debug",
+            class = "heading"
+        },
+        {
+            type = "Button",
+            x = 1,
+            y = "h",
+            h = 1,
+            w = 1,
+            text = "\27",
+            key = "tab",
+            on_click = "$tapi.back$",
+            horizontal_alignment = "left"
+        },
+        {
+            type = "Table",
+            x = 1,
+            y = 2,
+            w = "w",
+            h = "h-2",
+            z = 1.1, -- Get events before the focused Input
+            list = screenList,
+            columns = {
+                {
+                    ".",
+                    "w",
+                    "Name"
+                },
+            },
+            on_select = function(self, value)
+                tapi.open_screen(value)
+            end
+        }
+    }
+})
+
+register_screen("menu", {
+    type = "Screen",
+    content = {
+        {
+            type = "Text",
+            h = 1,
+            text = "nterm",
+            horizontal_alignment = "left",
+            class = "heading"
+        },
+        {
+            type = "Button",
+            w = "w",
+            h = "h/2-1",
+            y = 2,
+            text = "Listing",
+            on_click = "$tapi.open_screen('listing')$"
+        },
+        {
+            type = "Button",
+            w = "w/2",
+            h = "h/2-2",
+            x = "w/2+1",
+            y = "h/2+1",
+            text = "Settings",
+            on_click = "$tapi.open_screen('settings')$"
+        },
+        {
+            type = "Button",
+            w = "w/2",
+            h = "h/2-2",
+            y = "h/2+1",
+            text = "Tasks",
+            on_click = "$tapi.open_screen('tasks')$"
+        },
+        {
+            type = "Button",
+            w = 6,
+            h = 1,
+            x = "w-5",
+            y = "h",
+            text = "Quit",
+            on_click = "$quit$"
+        },
+        {
+            type = "Button",
+            w = 6,
+            h = 1,
+            x = 1,
+            y = "h",
+            z = 3,
+            text = "Power",
+            pressed = "$power_menu_open$",
+            toggle = true,
+            key = "tab"
+        },
+        {
+            type = "Button",
+            w = 9,
+            h = 1,
+            x = "(w-9)/2",
+            y = "h",
+            text = "Debug",
+            on_click = "$tapi.open_screen('debug')$"
+        },
+        {
+            type = "Frame",
+            x = 1,
+            y = "h-10",
+            w = "w",
+            h = 11,
+            z = 2,
+            class = "submenu",
+            hidden = "$not power_menu_open$",
+            content = {
+                {
+                    type = "Button",
+                    x = 1,
+                    y = 1,
+                    h = 3,
+                    w = "w",
+                    text = "Reboot All",
+                    on_click = "$capi.rebootAll$"
+                },
+                {
+                    type = "Button",
+                    x = 1,
+                    y = 4,
+                    h = 3,
+                    w = "w",
+                    text = "Force Reboot Server",
+                    on_click = "$capi.forceRebootServer$"
+                },
+                {
+                    type = "Button",
+                    x = 1,
+                    y = 7,
+                    h = 3,
+                    w = "w",
+                    text = "Reboot This",
+                    on_click = "$reboot$"
+                }
+            }
+        }
+    }
+})
 
 ---@type Screen
 local current_screen
@@ -309,7 +469,6 @@ end
 load_screen("tscreens/listing.lua")
 load_screen('tscreens/tasks.lua')
 load_screen("tscreens/settings.lua")
-load_screen("tscreens/menu.lua")
 current_screen = screens.menu
 
 scheduler.queueTask(STL.Task.new({
@@ -336,6 +495,24 @@ scheduler.queueTask(STL.Task.new({
 scheduler.queueTask(STL.Task.new({
     sset.checkForChangesThread
 }, "Settings"))
+
+if run_host then
+    local host = require("host")
+    scheduler.queueTask(STL.Task.new({ host.run }, "Host"))
+    local screen = host.screen
+    screen:add_widget(ui.classes.Button:new
+        {
+            type = "Button",
+            x = 1,
+            y = "h",
+            h = 1,
+            w = 1,
+            text = "$'\\27'$",
+            key = "tab",
+            on_click = tapi.back
+        })
+    register_screen_raw("Host", screen)
+end
 
 local ok, err = pcall(scheduler.run)
 -- TODO get the error out better!!!

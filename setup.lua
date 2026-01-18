@@ -94,7 +94,7 @@ local function prompt_host(no_host)
         "An SSD host already exists. By continuing you will be overwriting the global settings for the SSD host. Are you sure you want to do this?"
     local raw = generic_n_button_screen(s .. general_host_prompt,
         { text = "No", on_click = "$self:get_root():stop(false)$" },
-        { text = "Yes (+Term)", on_click = "$self:get_root():stop('host+nterm')$" },
+        { text = "Yes (+Term)", on_click = "$self:get_root():stop('host+term')$" },
         { text = "Yes", on_click = "$self:get_root():stop('host')$" })
     raw.env = env
     return ui.load_screen(raw):run(win)
