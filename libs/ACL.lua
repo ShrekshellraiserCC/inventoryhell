@@ -34,13 +34,13 @@ end
 ---@param wmodem Modem?
 ---@param tracker ScanTracker?
 ---@return ACL
-function lib.wrap(invList, wmodem, tracker)
+function lib.wrap(invList, wmodem, tracker, logger)
     -- Called 'this' to avoid scope conflictions with 'self'
     ---@class ACL
     local this = {}
     this.scheduler = TaskLib.Scheduler()
 
-    local invReserve = VirtualInv.new(invList, tracker)
+    local invReserve = VirtualInv.new(invList, tracker, logger)
     this.reserve = invReserve
     invReserve:defrag()
 
@@ -112,22 +112,6 @@ function lib.wrap(invList, wmodem, tracker)
         freeTurtles[turt] = true
         busyTurtles[turt] = nil
         os.queueEvent("turtle_freed")
-    end
-
-    local function text(y, s, ...)
-        local ox, oy = term.getCursorPos()
-        term.setCursorPos(1, y)
-        term.clearLine()
-        term.write(s:format(...))
-        term.setCursorPos(ox, oy)
-    end
-    local function length(t)
-        local c = 0
-        for k, v in pairs(t) do c = c + 1 end
-        return c
-    end
-    local function debugOverlay()
-        text(3, "fT:%d", length(freeTurtles))
     end
 
     ---@class QueableTask : Task

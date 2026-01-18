@@ -179,12 +179,6 @@ local function getItemDetailed(itemCoord, invCoord)
     error(("getItemDetail, no invCoord, but itemCoord (%s) not in cache!"):format(itemCoord), 2)
 end
 
-local function log(verbose, s, ...)
-    if verbose then
-        print(s:format(...))
-    end
-end
-
 
 ---
 
@@ -367,9 +361,20 @@ end
 ---@field scanLocks table<InventoryCompatible,integer>
 ---@field rootVirtSlotLUT table<ItemCoordinate,InventoryCoordinate>
 ---@field changedCallback fun(self:VirtualInv)
+---@field logger fun(s:string)?
 local VirtualInv__index = setmetatable({}, Reserve)
 VirtualInv__index.__type = "VirtualInv"
 local VirtualInv = { __index = VirtualInv__index }
+
+function VirtualInv__index:_log(verbose, s, ...)
+    if verbose then
+        if self._logger then
+            self._logger(s:format(...))
+        else
+            print(s:format(...))
+        end
+    end
+end
 
 ---Transfer a set amount of items between Reserves
 ---@param from Reserve
@@ -668,12 +673,12 @@ end
 ---@param tracker ScanTracker?
 function VirtualInv__index:defrag(verbose, tracker)
     local executor = newParallelismHandler()
-    log(verbose, "Defragging...")
+    self:_log(verbose, "Defragging...")
     local t0 = os.epoch("utc")
     self:executeDefrag(executor, tracker)
     executor:execute()
     local t1 = os.epoch("utc")
-    log(verbose, "Done [%.2f]", (t1 - t0) / 1000)
+    self:_log(verbose, "Done [%.2f]", (t1 - t0) / 1000)
 end
 
 ---Check if there are 0 of an item, and delete it if there is
@@ -994,8 +999,8 @@ function VirtualInv__index:executeScan(verbose, tracker)
         slotsPerInventory[inv] = slotsPerInventory[inv] or {}
         slotsPerInventory[inv][#slotsPerInventory[inv] + 1] = slot
     end
-    log(verbose, "Discovered %d slots across %d inventories.", tracker.totalSlots, tracker.totalInvs)
-    log(verbose, ".list() Contents...")
+    self:_log(verbose, "Discovered %d slots across %d inventories.", tracker.totalSlots, tracker.totalInvs)
+    self:_log(verbose, ".list() Contents...")
     local t0 = os.epoch("utc")
     local listings = {}
     local invExecutor = newParallelismHandler()
@@ -1007,16 +1012,16 @@ function VirtualInv__index:executeScan(verbose, tracker)
     end
     invExecutor:execute()
     local t1 = os.epoch("utc")
-    log(verbose, "Done [%.2f]", (t1 - t0) / 1000)
+    self:_log(verbose, "Done [%.2f]", (t1 - t0) / 1000)
     t0 = t1
-    log(verbose, "Detailed Scan...")
+    self:_log(verbose, "Detailed Scan...")
     local slotExecutor = newParallelismHandler()
     for inv in pairs(inventories) do
         self:_scanInv(inv, listings[inv], slotsPerInventory[inv], slotExecutor, tracker)
     end
     slotExecutor:execute()
     t1 = os.epoch("utc")
-    log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
+    self:_log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
 end
 
 ---Scan all slots this VirtualInv covers
@@ -1035,7 +1040,7 @@ function VirtualInv__index:scan(verbose)
             local percentage = tracker.slotsScanned / tracker.totalSlots
             local eta = (t1 - t0) * (1 / (percentage) - 1)
             term.setTextColor(colors.white)
-            log(verbose, "%d slots remain (%.2f%%). ETA: %.2fs", remaining, percentage * 100, eta / 1000)
+            self:_log(verbose, "%d slots remain (%.2f%%). ETA: %.2fs", remaining, percentage * 100, eta / 1000)
             term.setCursorPos(ox, oy)
             sleep(0.2)
         end
@@ -1043,7 +1048,7 @@ function VirtualInv__index:scan(verbose)
     local function run()
         self:executeScan(verbose, tracker)
     end
-    log(verbose, "Detailed Cache Build...")
+    self:_log(verbose, "Detailed Cache Build...")
     if verbose then
         parallel.waitForAny(throbber, run)
     else
@@ -1119,7 +1124,7 @@ end
 ---@param invs InventoryCompatible[]
 ---@param tracker ScanTracker?
 ---@return VirtualInv
-function VirtualInv.new(invs, tracker)
+function VirtualInv.new(invs, tracker, logger)
     local ess = Reserve.emptySlotStorage()
     ---@diagnostic disable-next-line: missing-fields
     ---@class VirtualInv : Reserve
@@ -1130,9 +1135,10 @@ function VirtualInv.new(invs, tracker)
     self.itemLocks = {}
     self.realSlotList = {}
     self.invSizes = {}
+    self._logger = logger
     local f = {}
     local verbose = true
-    log(verbose, "Gathering inventory sizes... ")
+    self:_log(verbose, "Gathering inventory sizes... ")
     local t0 = os.epoch("utc")
     for _, inv in ipairs(invs) do
         f[#f + 1] = function()
@@ -1141,8 +1147,8 @@ function VirtualInv.new(invs, tracker)
     end
     batchExecute(f, false, 128)
     local t1 = os.epoch("utc")
-    log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
-    log(verbose, "Generating Coordinates... ")
+    self:_log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
+    self:_log(verbose, "Generating Coordinates... ")
     t0 = t1
     for _, inv in ipairs(invs) do
         for slot = 1, self.invSizes[inv] do
@@ -1151,7 +1157,7 @@ function VirtualInv.new(invs, tracker)
         end
     end
     t1 = os.epoch("utc")
-    log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
+    self:_log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
 
 
     self.virtSlots = {}
