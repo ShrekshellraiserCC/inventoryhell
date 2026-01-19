@@ -3,16 +3,7 @@ _ENV = _ENV --[[@as SSDTermPluginENV]]
 _ENV.tapi.register_screen("tasks", {
     type = "Screen",
     content = {
-        {
-            type = "Button",
-            x = 1,
-            y = "h",
-            h = 1,
-            w = 1,
-            text = "$'\\27'$",
-            key = "tab",
-            on_click = "$tapi.back$"
-        },
+        _ENV.back_button_template(),
         {
             type = "Dropdown",
             x = 1,

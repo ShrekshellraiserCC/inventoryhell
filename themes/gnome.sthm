@@ -35,3 +35,7 @@ Dropdown {
     border_thickness = 1
     border_layer = px
 }
+
+#back-button {
+    fill_color = red
+}

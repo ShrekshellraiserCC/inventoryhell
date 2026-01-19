@@ -28,14 +28,13 @@ return {
     },
     tscreens = {
         "listing.lua",
-        "menu.lua",
         "settings.lua",
         "tasks.lua"
     },
     "crafter.lua",
     "host.lua",
-    "nsetup.lua",
-    "nterm.lua",
+    "setup.lua",
+    "term.lua",
     "pstartup.lua",
     "startup.lua",
 }

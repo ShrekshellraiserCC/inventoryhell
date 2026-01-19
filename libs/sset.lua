@@ -272,6 +272,7 @@ sset.scrollDelay = registerSetting("ui:scrollDelay", "Horizontal Text Scrolling 
 sset.theme = registerSetting("ui:theme", [[
 Color theme to use for UIs as path to .lua theme file.
 Invalid paths reset to default palette.
+Paths are absolute.
 ]], "string", sset.getInstalledPath "themes/gnome.sthm", true, "both")
 sset.unlockMouse = registerSetting("ui:unlockMouse", [[
 Unlock the mouse scroll from UI list selection position.

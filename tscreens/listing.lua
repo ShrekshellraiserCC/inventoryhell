@@ -30,16 +30,7 @@ _ENV.tapi.register_screen("listing", {
             options = { "All", "Stored", "Craftables", "+" },
             class = "heading"
         },
-        {
-            type = "Button",
-            x = 1,
-            y = "h",
-            h = 1,
-            w = 1,
-            text = "$'\\27'$",
-            key = "tab",
-            on_click = "$tapi.back$"
-        },
+        _ENV.back_button_template(),
         {
             type = "Button",
             x = 2,
@@ -156,16 +147,7 @@ _ENV.tapi.register_screen("request", {
             horizontal_alignment = "left",
             class = "heading"
         },
-        {
-            type = "Button",
-            x = 1,
-            y = "h",
-            h = 1,
-            w = 1,
-            text = "$back_icon$",
-            key = "tab",
-            on_click = "$tapi.back$"
-        },
+        _ENV.back_button_template(),
         {
             type = "Text",
             x = 1,

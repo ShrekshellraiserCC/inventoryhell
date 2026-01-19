@@ -31,7 +31,7 @@ if turtle then
     turtle.select(16)
 end
 
-ui.load_global_theme(sset.getInstalledPath(sset.get(sset.theme)))
+ui.load_global_theme(sset.get(sset.theme))
 
 ---@type table<number,boolean>
 local lockedTurtleSlots   = {}
@@ -139,6 +139,22 @@ local env = {
     type = type
 }
 
+---@return ButtonArgs
+env.back_button_template = function()
+    return {
+        type = "Button",
+        x = 1,
+        y = "h",
+        h = 1,
+        w = 1,
+        text = "\27",
+        key = "tab",
+        on_click = "$tapi.back$",
+        horizontal_alignment = "left",
+        id = "back-button"
+    }
+end
+
 env.open_screen_button = function(self)
     tapi.open_screen(self.meta)
 end
@@ -244,17 +260,6 @@ register_screen("debug", {
             class = "heading"
         },
         {
-            type = "Button",
-            x = 1,
-            y = "h",
-            h = 1,
-            w = 1,
-            text = "\27",
-            key = "tab",
-            on_click = "$tapi.back$",
-            horizontal_alignment = "left"
-        },
-        {
             type = "Table",
             x = 1,
             y = 2,
@@ -272,74 +277,45 @@ register_screen("debug", {
             on_select = function(self, value)
                 tapi.open_screen(value)
             end
-        }
+        },
+        env.back_button_template()
     }
 })
 
-register_screen("menu", {
+local menu_layout = {
     type = "Screen",
     content = {
+        {
+            type = "Frame",
+            content = {},
+            layout = "hbox",
+            w = "w",
+            h = "h/2-1",
+            y = 2,
+            z = 0.9
+        },
+        {
+            type = "Frame",
+            content = {},
+            layout = "hbox",
+            h = "h/2-2",
+            y = "h/2+1",
+            z = 0.9
+        },
+        {
+            type = "Frame",
+            content = {},
+            layout = "hbox",
+            h = 1,
+            y = "h",
+            z = 3
+        },
         {
             type = "Text",
             h = 1,
             text = "nterm",
             horizontal_alignment = "left",
             class = "heading"
-        },
-        {
-            type = "Button",
-            w = "w",
-            h = "h/2-1",
-            y = 2,
-            text = "Listing",
-            on_click = "$tapi.open_screen('listing')$"
-        },
-        {
-            type = "Button",
-            w = "w/2",
-            h = "h/2-2",
-            x = "w/2+1",
-            y = "h/2+1",
-            text = "Settings",
-            on_click = "$tapi.open_screen('settings')$"
-        },
-        {
-            type = "Button",
-            w = "w/2",
-            h = "h/2-2",
-            y = "h/2+1",
-            text = "Tasks",
-            on_click = "$tapi.open_screen('tasks')$"
-        },
-        {
-            type = "Button",
-            w = 6,
-            h = 1,
-            x = "w-5",
-            y = "h",
-            text = "Quit",
-            on_click = "$quit$"
-        },
-        {
-            type = "Button",
-            w = 6,
-            h = 1,
-            x = 1,
-            y = "h",
-            z = 3,
-            text = "Power",
-            pressed = "$power_menu_open$",
-            toggle = true,
-            key = "tab"
-        },
-        {
-            type = "Button",
-            w = 9,
-            h = 1,
-            x = "(w-9)/2",
-            y = "h",
-            text = "Debug",
-            on_click = "$tapi.open_screen('debug')$"
         },
         {
             type = "Frame",
@@ -381,7 +357,37 @@ register_screen("menu", {
             }
         }
     }
-})
+}
+
+---Add a button to the Menu screen on the row y.
+---This MUST be called before the Menu screen gets initialized.
+---@param y integer
+---@param label string
+---@param screen string?
+---@return ButtonArgs
+local function register_menu_button(y, label, screen)
+    assert(y >= 1 and y <= 3, "y out of range.")
+    local t = menu_layout.content[y].content
+    t[#t + 1] = {
+        type = "Button",
+        text = label,
+        on_click = screen and ("$tapi.open_screen('%s')$"):format(screen)
+    }
+    return t[#t]
+end
+
+register_menu_button(1, "Listing", "listing")
+register_menu_button(2, "Tasks", "tasks")
+register_menu_button(2, "Settings", "settings")
+do
+    local power_menu = register_menu_button(3, "Power")
+    power_menu.horizontal_alignment = "left"
+    power_menu.pressed = "$power_menu_open$"
+    power_menu.toggle = true
+    power_menu.key = "tab"
+
+    register_menu_button(3, "Debug", "debug")
+end
 
 ---@type Screen
 local current_screen
@@ -469,7 +475,34 @@ end
 load_screen("tscreens/listing.lua")
 load_screen('tscreens/tasks.lua')
 load_screen("tscreens/settings.lua")
+
+if run_host then
+    local host = require("host")
+    scheduler.queueTask(STL.Task.new({ host.run }, "Host"))
+    host.screen:add_widget(ui.classes.Button:new {
+        x = 1,
+        y = "h",
+        h = 1,
+        w = 1,
+        text = "\27",
+        key = "tab",
+        on_click = tapi.back,
+        horizontal_alignment = "left",
+        id = "back-button"
+    })
+    register_screen_raw("host", host.screen)
+    register_menu_button(1, "Host", "host")
+end
+
+do
+    local quit = register_menu_button(3, "Quit")
+    quit.horizontal_alignment = "right"
+    quit.on_click = env.quit
+end
+
+register_screen("menu", menu_layout)
 current_screen = screens.menu
+
 
 scheduler.queueTask(STL.Task.new({
     init
@@ -496,23 +529,6 @@ scheduler.queueTask(STL.Task.new({
     sset.checkForChangesThread
 }, "Settings"))
 
-if run_host then
-    local host = require("host")
-    scheduler.queueTask(STL.Task.new({ host.run }, "Host"))
-    local screen = host.screen
-    screen:add_widget(ui.classes.Button:new
-        {
-            type = "Button",
-            x = 1,
-            y = "h",
-            h = 1,
-            w = 1,
-            text = "$'\\27'$",
-            key = "tab",
-            on_click = tapi.back
-        })
-    register_screen_raw("Host", screen)
-end
 
 local ok, err = pcall(scheduler.run)
 -- TODO get the error out better!!!

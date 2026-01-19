@@ -67,16 +67,7 @@ _ENV.tapi.register_screen("settings", {
             horizontal_alignment = "left",
             class = "heading"
         },
-        {
-            type = "Button",
-            x = 1,
-            y = "h",
-            h = 1,
-            w = 1,
-            text = "$'\\27'$",
-            key = "tab",
-            on_click = "$tapi.back$"
-        },
+        _ENV.back_button_template(),
         {
             type = "Input",
             x = 2,
@@ -356,7 +347,8 @@ _ENV.tapi.register_screen("setting_edit", {
             text = "$'\\27 Cancel'$",
             key = "tab",
             on_click = "$tapi.back$",
-            horizontal_alignment = "left"
+            horizontal_alignment = "left",
+            id = "back-button"
         },
         {
             type = "Button",
@@ -402,7 +394,8 @@ _ENV.tapi.register_screen("setting_reboot", {
             h = 1,
             text = "No",
             key = "tab",
-            on_click = "$tapi.back$"
+            on_click = "$tapi.back$",
+            id = "back-button"
         },
         {
             type = "Button",

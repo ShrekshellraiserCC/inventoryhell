@@ -40,6 +40,25 @@ local itemDescriptorTypes = {
     end,
     HAS_TAG = function(self, item)
         return (item.tags or {})[self.tag]
+    end,
+    NOP = function(self, item)
+        return true
+    end,
+    COUNT = function(self, item)
+        local value = self.value
+        local op = self.op
+        if op == "=" or op == "==" then
+            return self.count == value
+        elseif op == ">" then
+            return self.count > value
+        elseif op == "<" then
+            return self.count < value
+        elseif op == ">=" then
+            return self.count >= value
+        elseif op == "<=" then
+            return self.count <= value
+        end
+        error(("Invalid operator %s"):format(op))
     end
 }
 
@@ -69,6 +88,10 @@ function ItemDescriptor__index:serialize()
         s = ("!%s"):format(self.A:serialize())
     elseif self.type == "HAS_TAG" then
         s = "T" .. self.tag
+    elseif self.type == "NOP" then
+        s = "*"
+    elseif self.type == "COUNT" then
+        s = "#" .. self.op .. self.value
     else
         error(("Serialization not implemented for type %s!"):format(self.type))
     end
@@ -158,6 +181,20 @@ function Item.gateNot(a)
     return setmetatable({ A = a, type = "NOT" }, ItemDescriptor)
 end
 
+---Match all items
+---@return ItemDescriptor
+function Item.nop()
+    return setmetatable({ type = "NOP" }, ItemDescriptor)
+end
+
+---@param op ">"|"<"|"="|"<="|">="
+---@param count any
+function Item.hasCount(op, count)
+    expect(1, op, "string")
+    expect(2, count, "number")
+    return setmetatable({ op = op, count = count, type = "COUNT" }, ItemDescriptor)
+end
+
 ---@param s string
 ---@param c string
 local function splitByChar(s, c)
@@ -173,7 +210,7 @@ local function splitAndGetOperator(s)
     local level = 0
     local splitIdx, op
     if s:sub(1, 1) ~= "(" or s:sub(#s, #s) ~= ")" then
----@diagnostic disable-next-line: missing-return-value
+        ---@diagnostic disable-next-line: missing-return-value
         return
     end
     for i = 1, #s do
@@ -217,6 +254,19 @@ function Item.unserialize(s)
     elseif ch == "P" then
         local pattern = s:sub(2)
         return Item.fromPattern(pattern)
+    elseif ch == "*" then
+        return Item.nop()
+    elseif ch == "#" then
+        local op = s:sub(2, 2)
+        ---@type number|string?
+        local value = s:sub(3)
+        if s:sub(3, 3) == "=" then
+            op = op .. "="
+            value = s:sub(4)
+        end
+        value = tonumber(value)
+        assert(type(value) == "number", "Invalid # number.")
+        return Item.hasCount(op, value)
     end
     error("Could not unserialize ItemDescriptor!")
 end

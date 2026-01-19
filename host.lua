@@ -30,7 +30,7 @@ local w, h = term.getSize()
 local wenv = {
     fstr = "Initial Setup..."
 }
-shrekui.load_global_theme(sset.getInstalledPath(sset.get(sset.theme)))
+shrekui.load_global_theme(sset.get(sset.theme))
 local win = window.create(term.current(), 1, 1, w, h)
 
 
