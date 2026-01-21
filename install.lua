@@ -103,10 +103,15 @@ function api.set_overwrite(overwrite)
     always_overwrite = overwrite
 end
 
+local has_added_path = false
 function api.do_install(write)
     assert(type(manifest) == "table", "Invalid Manifest!")
     install_dir("", manifest, write)
-    package.path = package.path .. ";" .. fs.combine(inst_dir) .. "/?.lua"
+    if not has_added_path then
+        package.path = package.path .. ";" .. fs.combine(inst_dir) .. "/?.lua"
+        has_added_path = true
+    end
+    arg[0] = fs.combine(inst_dir, "libs") -- bad sset install directory detection bypass
     local sset = require "libs.sset"
     sset.set(sset.version, api.get_hash())
     settings.set("shell.allow_disk_startup", true)
