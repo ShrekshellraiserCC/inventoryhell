@@ -28,10 +28,15 @@ end
 
 local inst_dir = "disk"
 local always_overwrite = false
-local function file_exists_warning(path)
+local function file_exists_warning(path, write)
     if always_overwrite then return true end
     while true do
-        printError(("WARNING: File %s exists! Overwrite? [N/y/a]"):format(path))
+        local ws = ("WARNING: File %s exists! Overwrite? [N/y/a]"):format(path)
+        if write then
+            write(ws)
+        else
+            printError(ws)
+        end
         local s = read()
         local c = s:sub(1, 1):lower()
         if c == "a" then
@@ -48,10 +53,10 @@ local function install_file(path, url, write)
     if write then write(("Downloading \31%s"):format(path)) end
     local abs_path = fs.combine(inst_dir, path)
     if fs.exists(abs_path) then
-        if not file_exists_warning(abs_path) then return false end
+        if not file_exists_warning(abs_path, write) then return false end
     end
     if test then
-        print((" FakeInstal \21%s"):format(path))
+        if write then write((" FakeInstal \21%s"):format(path)) end
         return
     end
     local s = get(url)

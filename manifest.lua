@@ -13,7 +13,8 @@ return {
         "sset.lua",
         "STL.lua",
         "ui.lua",
-        "VirtualInv.lua"
+        "VirtualInv.lua",
+        ["update.lua"] = "https://raw.githubusercontent.com/ShrekshellraiserCC/inventoryhell/refs/heads/main/install.lua"
     },
     cplugins = {
         "furnaces.lua"

@@ -64,7 +64,11 @@ local function do_update()
     back_button.hidden = true
     _ENV.tapi.open_screen("updating")
     update.set_install_dir(sset.get(sset.installDir))
+    update.fetch_manifest()
+    update.set_overwrite(true)
     update.do_install(function(s) log:log(s) end)
+    log:log("")
+    log:log("Update Complete!")
     back_button.hidden = false
 end
 
@@ -126,7 +130,8 @@ local screen = _ENV.tapi.register_screen("updating", {
         {
             type = "Text",
             h = 1,
-            text = "SSD Updating..."
+            text = "SSD Updating...",
+            class = "heading"
         },
         {
             type = "Log",
@@ -134,11 +139,15 @@ local screen = _ENV.tapi.register_screen("updating", {
             h = "h-2",
             id = "update-log"
         },
-        _ENV.back_button_template {
+        {
+            type = "Button",
             hidden = true,
             w = "w",
+            h = 1,
+            y = "h",
             text = "Reboot All",
-            on_click = _ENV.capi.rebootAll
+            on_click = _ENV.capi.rebootAll,
+            id = "back-button"
         }
     }
 })
