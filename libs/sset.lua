@@ -273,10 +273,7 @@ sset.theme = registerSetting("ui:theme", [[
 Color theme to use for UIs as path to .lua theme file.
 Invalid paths reset to default palette.
 Paths are absolute.
-]], "string", sset.getInstalledPath "themes/gnome.sthm", true, "both")
-sset.unlockMouse = registerSetting("ui:unlockMouse", [[
-Unlock the mouse scroll from UI list selection position.
-]], "boolean", true, true, "both")
+]], "string", sset.getInstalledPath "themes/cc.sthm", true, "both")
 
 sset.settingChangeCheckInterval = registerSetting("sset:settingChangeCheckInterval",
     "Delay between checking whether the config files have been updated.", "number", 5, nil, "global")

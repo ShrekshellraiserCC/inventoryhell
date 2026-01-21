@@ -28,7 +28,7 @@ _ENV.tapi.register_screen("tasks", {
                 },
                 {
                     "name",
-                    "w-16",
+                    "w-17",
                     "Name"
                 },
                 {

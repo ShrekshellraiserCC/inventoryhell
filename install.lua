@@ -1,15 +1,11 @@
-local author = "ShrekshellraiserCC"
+local author = "ShreksHellraiserCC"
 local repo = "inventoryhell"
 local branch = "main"
 
 
-local test = true
+local test = fs.exists("ideas.txt") -- jank to avoid running the installer in my dev environment
 
 local function get(url)
-    if test then
-        sleep(0)
-        return ""
-    end
     local h, err, eh = http.get(url)
     if err or eh then
         local s = ("Error fetching %s.\n%s"):format(url, eh and eh.readAll() or err)
@@ -54,9 +50,12 @@ local function install_file(path, url, write)
     if fs.exists(abs_path) then
         if not file_exists_warning(abs_path) then return false end
     end
+    if test then
+        print((" FakeInstal \21%s"):format(path))
+        return
+    end
     local s = get(url)
     if write then write((" Installing \21%s"):format(path)) end
-    if test then return end
     local f = assert(fs.open(abs_path, "w"))
     f.write(s)
     f.close()
@@ -109,6 +108,7 @@ function api.do_install(write)
     install_dir("", manifest, write)
     local sset = require "libs.sset"
     sset.set(sset.version, api.get_hash())
+    settings.set("shell.allow_disk_startup", true)
 end
 
 api.get_hash = get_hash
@@ -118,19 +118,66 @@ if #args == 2 and type(package.loaded[args[1]]) == "table" and not next(package.
     return api
 end
 
+local function fake_screen(heading, text, footer)
+    term.clear()
+    term.setCursorPos(1, 1)
+    term.setBackgroundColor(colors.blue)
+    term.clearLine()
+    print(heading)
+    term.setBackgroundColor(colors.black)
+    print(text)
+    local _, h = term.getSize()
+    term.setCursorPos(1, h)
+    if footer then
+        term.setTextColor(colors.yellow)
+        term.write(footer)
+    end
+    term.setTextColor(colors.white)
+end
+
+local function wait_for_key(k)
+    repeat until select(2, os.pullEvent("key")) == k
+end
+
 -- running from commandline
-term.clear()
-term.setCursorPos(1, 1)
-print("This is the installer for SSD.")
-print("Please attach a disk drive and insert a computer or floppy with at least 1MB of total capacity.")
-print("Press enter to continue.")
-repeat until select(2, os.pullEvent('key')) == keys.enter
+fake_screen("SSD Install Disclaimer",
+    [[This is a PREVIEW of an EARLY in development storage system and may not represent the final product.
+
+The purpose of this preview is to get UI/UX feedback, if you have any, please message @ShreksHellraiser.
+
+If you find bugs/crashes, please INSTEAD report them to the github repo inventoryhell.]], "Press [ Y ] to continue.")
+wait_for_key(keys.y)
+
+
+if not term.isColor() then
+    fake_screen("SSD Install Warning",
+        "This version of SSD lacks extensive keyboard navigation and does not support basic computers.",
+        "Press [ Enter ] to continue anyways.")
+    wait_for_key(keys.enter)
+end
+
+fake_screen("SSD Installer",
+    [[An SSD network consists of
+* A disk with the program files and global configuration
+* A computer configured as a host
+* Any number of computers/turtles configured as terminals
+* NYI* - Any number of crafting turtles
+
+This program will install the necessary files to a directory of your choosing.
+]], "Press [ Enter ] to continue.")
+wait_for_key(keys.enter)
+
+fake_screen("SSD Installer",
+    "Please attach a disk drive and insert a computer or floppy with at least 1MB of total capacity.",
+    "Press [ Enter ] to continue.")
+wait_for_key(keys.enter)
 repeat
-    print("Enter installation directory, or leave blank for /disk/")
+    fake_screen("SSD Installer", "Enter installation directory, or leave blank for /disk/", "Dir [/disk/]? ")
     inst_dir = read()
     if inst_dir == "" then inst_dir = "disk" end
     if not fs.exists(inst_dir) then
         printError(("The directory %s does not exist!"):format(inst_dir))
+        sleep(1)
     end
 until fs.exists(inst_dir)
 
@@ -144,3 +191,7 @@ else
     api.fetch_manifest()
 end
 api.do_install(print)
+
+fake_screen("SSD Installed!", "SSD has finished installing!", "Press [ Enter ] to reboot.")
+wait_for_key(keys.enter)
+os.reboot()

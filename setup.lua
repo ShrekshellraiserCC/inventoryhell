@@ -1,6 +1,7 @@
 local sset = require "libs.sset"
 local ui = require "libs.shrekui"
 
+ui.load_global_theme(sset.get(sset.theme))
 local win = window.create(term.current(), 1, 1, term.getSize())
 
 local env = {}
@@ -100,6 +101,18 @@ local function prompt_host(no_host)
     return ui.load_screen(raw):run(win)
 end
 
+local function apply_startup_files()
+    if fs.exists("startup.lua") then
+        if show_confirm_screen("The file startup.lua already exists, do you want to overwrite this?", "Yes", "No") then
+            fs.delete("startup.lua")
+        end
+    end
+    if not fs.exists("startup.lua") then
+        fs.copy(sset.getInstalledPath "pstartup.lua", "startup.lua")
+    end
+    os.reboot()
+end
+
 local function apply_host_setting(h)
     sset.set(sset.program, h)
     sset.set(sset.hid, os.getComputerID())
@@ -116,23 +129,83 @@ local function apply_host_setting(h)
         end
     end
     sset.set(sset.hmn, modem.getNameLocal())
-    if fs.exists("startup.lua") then
-        if show_confirm_screen("The file startup.lua already exists, do you want to overwrite this?", "Yes", "No") then
-            fs.delete("startup.lua")
-        end
-    end
-    if not fs.exists("startup.lua") then
-        fs.copy(sset.getInstalledPath "pstartup.lua", "startup.lua")
-    end
-    os.reboot()
+    apply_startup_files()
 end
 
-if sset.get(sset.hid) == nil or true then
-    local h = prompt_host(true)
-    if h then
-        apply_host_setting(h)
-        exit_message()
-        return
-    end
+local function apply_term_settings()
+    sset.set(sset.program, "term")
+    apply_startup_files()
+end
+
+local option_str = [[What purpose should this computer serve?]]
+
+local all_options_r = {
+    type = "Screen",
+    content = {
+        header,
+        {
+            type = "Text",
+            text = option_str,
+            y = 2,
+            h = "(h-2)/2",
+        },
+        {
+            type = "Frame",
+            y = "(h-2)/2+2",
+            h = "(h-3)/2",
+            layout = "hbox",
+            content = {}
+        },
+        {
+            type = "Button",
+            text = "Cancel",
+            y = "h",
+            h = 1,
+            on_click = "$self:get_root():stop(false)$"
+        }
+    }
+}
+
+
+local option_select = {
+    host = function()
+        local h = prompt_host(sset.get(sset.hid) == nil)
+        if h then
+            apply_host_setting(h) -- reboots on success
+            exit_message()
+            return
+        end
+    end,
+    term = apply_term_settings
+}
+
+local function option_button_selected(self)
+    self:get_root():stop(self.meta)
+end
+
+local function add_option(label, meta)
+    local ctable = all_options_r.content[3].content
+    ctable[#ctable + 1] = {
+        type = "Button",
+        text = label,
+        meta = meta,
+        on_click = option_button_selected
+    }
+end
+add_option("Term", "term")
+add_option("Host", "host")
+
+if sset.get(sset.hid) == nil then
+    option_select.host()
     -- passthrough if they cancelled, maybe the user wants to access the rest of the options?
 end
+
+local options_screen = ui.load_screen(all_options_r)
+while true do
+    local option = options_screen:run(win)
+    if not option then break end
+    option_select[option]()
+end
+term.clear()
+term.setCursorPos(1, 1)
+print("Cancelled SSD Setup.")

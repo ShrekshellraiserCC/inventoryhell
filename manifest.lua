@@ -7,6 +7,7 @@ return {
         "ItemDescriptor.lua",
         ["shrekbox.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekbox.lua",
         ["shrekdraw.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekdraw.lua",
+        ["shrektheme.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrektheme.lua",
         ["shrekui.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/ui.lua",
         "shrexpect.lua",
         "sset.lua",
@@ -17,14 +18,8 @@ return {
         "furnaces.lua"
     },
     themes = {
-        "gnome.sthm"
-    },
-    tplugins = {
-        "fragmap.lua",
-        "jsonImport.lua",
-        "recipes.lua",
-        "settings.lua",
-        "tasks.lua"
+        "gnome.sthm",
+        "cc.sthm"
     },
     tscreens = {
         "listing.lua",

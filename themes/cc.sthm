@@ -1,0 +1,18 @@
+
+* {
+    fill_color:pressed = orange
+    header_color = blue
+}
+
+Dropdown {
+    fill_color = blue
+}
+
+.heading {
+    fill_color = blue
+}
+
+.submenu {
+    border_thickness = 1
+    border_layer = px
+}

@@ -1,5 +1,14 @@
 local args = { ... }
-local run_host = args[1] == "+host"
+local enable_host
+local enable_debug
+
+for i, v in ipairs(args) do
+    if v == "+host" then
+        enable_host = true
+    elseif v == "+debug" then
+        enable_debug = true
+    end
+end
 
 local listing = {
     { name = "minecraft:cobblestone", displayName = "Cobblestone", count = 1200 },
@@ -386,7 +395,9 @@ do
     power_menu.toggle = true
     power_menu.key = "tab"
 
-    register_menu_button(3, "Debug", "debug")
+    if enable_debug then
+        register_menu_button(3, "Debug", "debug")
+    end
 end
 
 ---@type Screen
@@ -476,7 +487,7 @@ load_screen("tscreens/listing.lua")
 load_screen('tscreens/tasks.lua')
 load_screen("tscreens/settings.lua")
 
-if run_host then
+if enable_host then
     local host = require("host")
     scheduler.queueTask(STL.Task.new({ host.run }, "Host"))
     host.screen:add_widget(ui.classes.Button:new {
