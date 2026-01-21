@@ -113,7 +113,8 @@ function api.do_install(write)
     assert(type(manifest) == "table", "Invalid Manifest!")
     install_dir("", manifest, write)
     if not has_added_path then
-        package.path = package.path .. ";" .. fs.combine(inst_dir) .. "/?.lua"
+        package.path = package.path ..
+        ";" .. fs.combine(inst_dir) .. "/?.lua" .. ";foo/?.lua"                                -- fails to load sset without this jank??
         has_added_path = true
     end
     arg[0] = fs.combine(inst_dir, "libs") -- bad sset install directory detection bypass
