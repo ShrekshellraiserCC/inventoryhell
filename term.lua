@@ -217,7 +217,7 @@ function env.submit_request(self)
     end
     local count = self.meta * mul
     request(env.item, count)
-    self:get_root():stop()
+    tapi.back()
 end
 
 function env.craft()

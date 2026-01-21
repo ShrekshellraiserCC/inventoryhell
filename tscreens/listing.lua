@@ -12,7 +12,7 @@ end
 local function toggle_craft_button(self)
     _ENV.tapi.lock_inventory(_ENV.craft_active)
     if not _ENV.craft_active then
-        _ENV.tapi.clear_reserved_slots()
+        _ENV.tapi.clear_locked_slots()
         _ENV.tapi.lock_inventory(false)
     end
 end

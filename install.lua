@@ -95,7 +95,7 @@ function api.set_install_dir(dir)
 end
 
 local function load_manifest(str)
-    manifest = load(str, "manifest", "t", {})()
+    manifest = assert(load(str, "manifest", "t", {})())
 end
 
 function api.fetch_manifest()

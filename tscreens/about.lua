@@ -64,6 +64,7 @@ local function do_update()
     back_button.hidden = true
     _ENV.tapi.open_screen("updating")
     update.set_install_dir(sset.get(sset.installDir))
+    log:log("Fetching manifest...")
     update.fetch_manifest()
     update.set_overwrite(true)
     update.do_install(function(s) log:log(s) end)
