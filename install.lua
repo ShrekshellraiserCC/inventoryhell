@@ -106,6 +106,7 @@ end
 function api.do_install(write)
     assert(type(manifest) == "table", "Invalid Manifest!")
     install_dir("", manifest, write)
+    package.path = package.path .. ";" .. fs.combine(inst_dir) .. "/?.lua"
     local sset = require "libs.sset"
     sset.set(sset.version, api.get_hash())
     settings.set("shell.allow_disk_startup", true)
