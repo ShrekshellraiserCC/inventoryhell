@@ -25,7 +25,8 @@ return {
     tscreens = {
         "listing.lua",
         "settings.lua",
-        "tasks.lua"
+        "tasks.lua",
+        "about.lua"
     },
     "crafter.lua",
     "host.lua",
