@@ -11,6 +11,7 @@ return {
         ["shrekui.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/ui.lua",
         "shrexpect.lua",
         "sset.lua",
+        "STL.lua",
         "ui.lua",
         "VirtualInv.lua"
     },
