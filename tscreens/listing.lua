@@ -236,3 +236,6 @@ _ENV.tapi.register_screen("request", {
         }
     }
 })
+
+
+_ENV.tapi.register_menu_button(1, "Listing", "listing")

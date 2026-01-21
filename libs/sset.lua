@@ -212,7 +212,7 @@ function sset.checkForChangesThread()
 end
 
 function sset.getInstalledPath(fn)
-    return fs.combine(sset.get(sset.install_dir), fn)
+    return fs.combine(sset.get(sset.installDir), fn)
 end
 
 ---Register a new type of setting
@@ -252,7 +252,7 @@ sset.program = registerSetting(
     { "host", "term", "crafter", "host+term" })
 sset.hid = registerSetting("boot:hid", "Storage Host ID", "number", nil, true, "global")
 sset.hmn = registerSetting("boot:hmn", "Storage Host Modem Name", "string", nil, true, "global")
-sset.install_dir = registerSetting("boot:installDir", "Installation directory", "string", cwd, true, "global")
+sset.installDir = registerSetting("boot:installDir", "Installation directory", "string", cwd, true, "global")
 
 sset.hideExtra = registerSetting("term:hideExtra", "Hide NBT and other data", "boolean", true, true)
 sset.debounceDelay = registerSetting("term:debounceDelay", "Debounce turtle_inventory by waiting this long.", "number",

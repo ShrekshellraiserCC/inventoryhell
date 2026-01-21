@@ -409,3 +409,6 @@ _ENV.tapi.register_screen("setting_reboot", {
         }
     }
 })
+
+
+_ENV.tapi.register_menu_button(2, "Settings", "settings")

@@ -1,3 +1,4 @@
-This is a WIP repository for my new inventory management libraries.
+# ShrekStorageDrive
+(working title.)
 
-`tplugins/` is for plugins loaded by `term.lua`
+This is my new CC storage system. It is early in development, you're welcome to try it out, but expect things to change and it to be rough around the edges.

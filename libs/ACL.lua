@@ -1064,7 +1064,9 @@ function lib.wrap(invList, wmodem, tracker, logger)
     local function loadPlugins(dir)
         local list = fs.list(dir)
         for i, v in ipairs(list) do
-            print("Loading Plugin:", v)
+            if logger then
+                logger("Loading Plugin: " .. v)
+            end
             loadfile(fs.combine(dir, v), "t", _ENV)()(this)
         end
     end

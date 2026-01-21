@@ -33,7 +33,9 @@ local debounceDelay = sset.get(sset.debounceDelay)
 local debounceTid = os.startTimer(debounceDelay)
 
 ---@class SSDTermAPI
-local tapi = {}
+local tapi = {
+    sset = sset
+}
 tapi.scheduler = scheduler
 
 if turtle then
@@ -121,8 +123,6 @@ local tw, th = term.getSize()
 local win = window.create(term.current(), 1, 1, tw, th)
 term.clear()
 
-tapi.sset = sset
-
 ---@class SSDTermPluginENV
 local env = {
     item = listing[1],
@@ -145,12 +145,17 @@ local env = {
     ipairs = ipairs,
     pairs = pairs,
     debug_overlay = false,
-    type = type
+    type = type,
+    require = require
 }
 
+---@class BackButtonTemplateArgs : ButtonArgs
+---@field text string?
+
+---@param override BackButtonTemplateArgs?
 ---@return ButtonArgs
-env.back_button_template = function()
-    return {
+env.back_button_template = function(override)
+    local t = {
         type = "Button",
         x = 1,
         y = "h",
@@ -162,6 +167,12 @@ env.back_button_template = function()
         horizontal_alignment = "left",
         id = "back-button"
     }
+    if override then
+        for k, v in pairs(override) do
+            t[k] = v
+        end
+    end
+    return t
 end
 
 env.open_screen_button = function(self)
@@ -384,10 +395,8 @@ local function register_menu_button(y, label, screen)
     }
     return t[#t]
 end
+tapi.register_menu_button = register_menu_button
 
-register_menu_button(1, "Listing", "listing")
-register_menu_button(2, "Tasks", "tasks")
-register_menu_button(2, "Settings", "settings")
 do
     local power_menu = register_menu_button(3, "Power")
     power_menu.horizontal_alignment = "left"
@@ -484,8 +493,9 @@ local function load_screen(fn)
 end
 
 load_screen("tscreens/listing.lua")
-load_screen('tscreens/tasks.lua')
+load_screen("tscreens/tasks.lua")
 load_screen("tscreens/settings.lua")
+load_screen("tscreens/about.lua")
 
 if enable_host then
     local host = require("host")
