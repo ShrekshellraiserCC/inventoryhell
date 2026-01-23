@@ -62,7 +62,7 @@ local screenArgs = {
     }
 }
 local screen = shrekui.load_screen(screenArgs, wenv)
-local log = screen:get_widget_by_class("log", 1) --[[@as Log]]
+local log = screen:get_widget_by_class("log", 1) --[[@as shrekui.Log]]
 
 
 

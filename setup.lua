@@ -18,7 +18,7 @@ local header = {
     }
 }
 ---@param s string
----@param ... WidgetArgs
+---@param ... shrekui.WidgetArgs
 local function generic_n_button_screen(s, ...)
     local screen = {
         type = "Screen",

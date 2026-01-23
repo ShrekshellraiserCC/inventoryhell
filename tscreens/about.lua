@@ -56,9 +56,9 @@ _ENV.tapi.register_menu_button(3, "About", "about")
 
 
 
----@type Log
+---@type shrekui.Log
 local log
----@type Button
+---@type shrekui.Button
 local back_button
 local function do_update()
     back_button.hidden = true
@@ -152,5 +152,5 @@ local screen = _ENV.tapi.register_screen("updating", {
         }
     }
 })
-log = screen:get_widget_by_id("update-log") --[[@as Log]]
-back_button = screen:get_widget_by_id("back-button") --[[@as Button]]
+log = screen:get_widget_by_id("update-log") --[[@as shrekui.Log]]
+back_button = screen:get_widget_by_id("back-button") --[[@as shrekui.Button]]

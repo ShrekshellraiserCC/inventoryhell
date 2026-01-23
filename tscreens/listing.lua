@@ -1,7 +1,8 @@
-_ENV = _ENV --[[@as SSDTermPluginENV]]
+---@class SSDTermPluginENV
+_ENV = _ENV
 
 local function item_select(self, item, idx)
-    ---@cast self Screen
+    ---@cast self shrekui.Screen
     _ENV.item = item
     _ENV.item.detail = nil
     _ENV.item.detail = textutils.serialize(item)
@@ -17,6 +18,47 @@ local function toggle_craft_button(self)
     end
 end
 
+local listing_raw = {}
+local sort = {}
+local function apply_sort(filter)
+    sort = {}
+    for i, v in ipairs(listing_raw) do
+        if v.name:match(filter) then
+            sort[#sort + 1] = v
+        end
+    end
+    _ENV.listing = sort
+end
+apply_sort("")
+local function search_change(self, value)
+    apply_sort(value)
+end
+
+local function init(list, fragmap)
+    listing_raw = capi.list()
+    apply_sort("")
+end
+
+function _ENV.submit_request(self)
+    local mul = 8
+    if self:is_held(keys.leftShift) then
+        mul = 64
+    elseif self:is_held(keys.leftCtrl) then
+        mul = 1
+    end
+    local count = self.meta * mul
+    tapi.request(_ENV.item, count)
+    tapi.back()
+end
+
+_ENV.capi.subscribeTo({
+    changes = function(l, fm)
+        listing_raw = l
+        apply_sort(_ENV.search_bar)
+    end,
+    start = init
+})
+
 _ENV.tapi.register_screen("listing", {
     type = "Screen",
     content = {
@@ -30,7 +72,9 @@ _ENV.tapi.register_screen("listing", {
             options = { "All", "Stored", "Craftables", "+" },
             class = "heading"
         },
-        _ENV.back_button_template(),
+        _ENV.back_button_template {
+            z = 1.3,
+        },
         {
             type = "Button",
             x = 2,
@@ -38,6 +82,7 @@ _ENV.tapi.register_screen("listing", {
             w = 3,
             h = 1,
             text = "  >",
+            z = 1.3,
             toggle = true,
             pressed = "$search_options$"
         },
@@ -47,24 +92,26 @@ _ENV.tapi.register_screen("listing", {
             y = "h",
             h = 1,
             w = "w-((turtle and turtle.craft) and 10 or 4)",
+            z = 1.3,
             ignore_focus = true,
             always_update = true,
-            on_change = "$search_change$",
+            on_change = search_change,
             value = "$search_bar$"
         },
         {
             type = "Frame",
             x = 1,
-            y = "h-5",
+            y = "h-4",
             w = "w-((turtle and turtle.craft) and 11 or 0)",
             h = "5",
             hidden = "$not search_options$",
-            z = 3,
+            z = 1.2,
             class = "submenu",
             content = {
                 {
-                    type = "Button",
-                    text = "FUCK"
+                    type = "Checkbox",
+                    text = "Enable ItemDescriptors",
+                    pressed = "$enable_item_descriptors$"
                 }
             }
         },
@@ -184,7 +231,7 @@ _ENV.tapi.register_screen("request", {
             text =
             "$self:is_held(keys.leftShift) and '[A  64]' or self:is_held(keys.leftCtrl) and '[A   1]' or '[A   8]'$",
             meta = 1,
-            on_click = "$submit_request$",
+            on_click = submit_request,
             key = "a"
         },
         {
@@ -196,7 +243,7 @@ _ENV.tapi.register_screen("request", {
             text =
             "$self:is_held(keys.leftShift) and '[S 128]' or self:is_held(keys.leftCtrl) and '[S   2]' or '[S  16]'$",
             meta = 2,
-            on_click = "$submit_request$",
+            on_click = submit_request,
             key = "s"
         },
         {
@@ -208,7 +255,7 @@ _ENV.tapi.register_screen("request", {
             text =
             "$self:is_held(keys.leftShift) and '[D 256]' or self:is_held(keys.leftCtrl) and '[D   4]' or '[D  32]'$",
             meta = 4,
-            on_click = "$submit_request$",
+            on_click = submit_request,
             key = "d"
         },
         {
@@ -220,7 +267,7 @@ _ENV.tapi.register_screen("request", {
             text =
             "$self:is_held(keys.leftShift) and '[F 512]' or self:is_held(keys.leftCtrl) and '[F   8]' or '[F  64]'$",
             meta = 8,
-            on_click = "$submit_request$",
+            on_click = submit_request,
             key = "f"
         },
         {
@@ -231,7 +278,7 @@ _ENV.tapi.register_screen("request", {
             w = 7,
             text = "[Enter]",
             meta = 8,
-            on_click = "$submit_request$",
+            on_click = submit_request,
             key = "enter"
         }
     }

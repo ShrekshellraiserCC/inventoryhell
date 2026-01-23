@@ -10,11 +10,6 @@ for i, v in ipairs(args) do
     end
 end
 
-local listing = {
-    { name = "minecraft:cobblestone", displayName = "Cobblestone", count = 1200 },
-    { name = "minecraft:stone_sword", displayName = "Stone Sword", count = 15 }
-}
-
 package.path = package.path .. ";libs/?.lua"
 
 local ui = require "libs.shrekui"
@@ -125,9 +120,7 @@ term.clear()
 
 ---@class SSDTermPluginENV
 local env = {
-    item = listing[1],
     back_icon = "\27",
-    listing = listing,
     search_bar = "",
     setting_search_bar = "",
     turtle = turtle,
@@ -149,11 +142,11 @@ local env = {
     require = require
 }
 
----@class BackButtonTemplateArgs : ButtonArgs
+---@class BackButtonTemplateArgs : shrekui.ButtonArgs
 ---@field text string?
 
 ---@param override BackButtonTemplateArgs?
----@return ButtonArgs
+---@return shrekui.ButtonArgs
 env.back_button_template = function(override)
     local t = {
         type = "Button",
@@ -178,22 +171,9 @@ end
 env.open_screen_button = function(self)
     tapi.open_screen(self.meta)
 end
-local sort = {}
-local function apply_sort(filter)
-    sort = {}
-    for i, v in ipairs(listing) do
-        if v.name:match(filter) then
-            sort[#sort + 1] = v
-        end
-    end
-    env.listing = sort
-end
-apply_sort("")
-env.search_change = function(self, value)
-    apply_sort(value)
-end
 
-local function request(item, count)
+---@param item CCItemInfo
+function tapi.request(item, count)
     expectingItems = true
     local target = invName or lname
     if target then
@@ -208,17 +188,6 @@ local function request(item, count)
         expectingItems = false
     end
 end
-function env.submit_request(self)
-    local mul = 8
-    if self:is_held(keys.leftShift) then
-        mul = 64
-    elseif self:is_held(keys.leftCtrl) then
-        mul = 1
-    end
-    local count = self.meta * mul
-    request(env.item, count)
-    tapi.back()
-end
 
 function env.craft()
     turtle.craft()
@@ -229,12 +198,12 @@ function env.depot()
     emptyTurtleInventory()
 end
 
----@type table<string,Screen>
+---@type table<string,shrekui.Screen>
 local screens = {}
 ---@type string[]
 local screenList = {}
 ---@param name string
----@param screen Screen
+---@param screen shrekui.Screen
 local function register_screen_raw(name, screen)
     screens[name] = screen
     screen.meta = name
@@ -384,7 +353,7 @@ local menu_layout = {
 ---@param y integer
 ---@param label string
 ---@param screen string?
----@return ButtonArgs
+---@return shrekui.ButtonArgs
 local function register_menu_button(y, label, screen)
     assert(y >= 1 and y <= 3, "y out of range.")
     local t = menu_layout.content[y].content
@@ -409,7 +378,7 @@ do
     end
 end
 
----@type Screen
+---@type shrekui.Screen
 local current_screen
 local screen_stack = {}
 function tapi.open_screen(name)
@@ -480,9 +449,7 @@ local function init()
     if invName and peripheral.wrap(invName) then
         clientlib.removeInventory(invName)
     end
-    listing = clientlib.list()
     server_tasks = clientlib.listTasks()
-    apply_sort("")
 end
 
 local function load_screen(fn)
@@ -524,6 +491,12 @@ end
 register_screen("menu", menu_layout)
 current_screen = screens.menu
 
+clientlib.subscribeTo({
+    start = init,
+    tasks = function(l)
+        server_tasks = l
+    end
+})
 
 scheduler.queueTask(STL.Task.new({
     init
@@ -532,19 +505,7 @@ scheduler.queueTask(STL.Task.new({
     ui_event_loop, ui_render_loop
 }, "UI"))
 scheduler.queueTask(STL.Task.new({
-    clientlib.run,
-    function()
-        clientlib.subscribeTo({
-            changes = function(l, fm)
-                listing = l
-                apply_sort(env.search_bar)
-            end,
-            start = init,
-            tasks = function(l)
-                server_tasks = l
-            end
-        })
-    end
+    clientlib.run
 }, "Clientlib"))
 scheduler.queueTask(STL.Task.new({
     sset.checkForChangesThread

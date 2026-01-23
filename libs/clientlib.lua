@@ -275,27 +275,51 @@ end
 ---@field tasks fun(l:TaskListInfo[])? Called when the s erver publishes a list of running tasks
 ---@field progress fun(stage:string,total:integer,scanned:integer,eta:number,etaStr:string)? Called while the server is starting with progress information
 
+local subscriptions = {
+    changes = {},
+    start = {},
+    tasks = {},
+    progress = {}
+}
+
 ---Register a subscriber to various messages published by the server
 ---@param subs ClientSubscriptions
 function clientlib.subscribeTo(subs)
-    while true do
-        local sender, msg = rednet.receive(clientlib.protocol)
-        if sender == hid and type(msg) == "table" then
-            if msg.type == "inventoryChange" and subs.changes then
-                subs.changes(msg.list, msg.fragMap)
-            elseif msg.type == "serverStart" and subs.start then
-                subs.start(msg.list, msg.fragMap)
-            elseif msg.type == "taskUpdate" and subs.tasks then
-                subs.tasks(msg.list)
-            elseif msg.type == "scanProgress" and subs.progress then
-                subs.progress(msg.stage, msg.total, msg.scanned, msg.eta, msg.etaStr)
-            end
-        end
+    if subs.changes then
+        subscriptions.changes[#subscriptions.changes + 1] = subs.changes
+    end
+    if subs.start then
+        subscriptions.start[#subscriptions.start + 1] = subs.start
+    end
+    if subs.progress then
+        subscriptions.progress[#subscriptions.progress + 1] = subs.progress
+    end
+    if subs.tasks then
+        subscriptions.tasks[#subscriptions.tasks + 1] = subs.tasks
     end
 end
 
 function clientlib.close()
     modem.closeAll()
+end
+
+---@param t function[]
+---@param ... any
+local function callAll(t, ...)
+    for i, v in ipairs(t) do
+        v(...)
+    end
+end
+local function processSubscriptions(msg)
+    if msg.type == "inventoryChange" then
+        callAll(subscriptions.changes, msg.list, msg.fragMap)
+    elseif msg.type == "serverStart" then
+        callAll(subscriptions.start, msg.list, msg.fragMap)
+    elseif msg.type == "taskUpdate" then
+        callAll(subscriptions.tasks, msg.list)
+    elseif msg.type == "scanProgress" then
+        callAll(subscriptions.progress, msg.stage, msg.total, msg.scanned, msg.eta, msg.etaStr)
+    end
 end
 
 ---Update the throbber animation state
@@ -319,6 +343,7 @@ clientlib.run = function()
                     -- heartbeat of the server
                     serverState = serverStates.CONNECTED
                 end
+                processSubscriptions(message)
             end
         end
     end)
