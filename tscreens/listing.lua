@@ -3,7 +3,7 @@ local ItemDescriptor = require "libs.ItemDescriptor"
 ---@class SSDTermPluginENV
 _ENV = _ENV
 
-local debug_ignore_listing_updates = true
+local debug_ignore_listing_updates = false
 
 local function item_select(self, item, idx)
     ---@cast self shrekui.Screen
