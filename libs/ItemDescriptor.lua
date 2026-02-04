@@ -48,17 +48,20 @@ local itemDescriptorTypes = {
         local value = self.value
         local op = self.op
         if op == "=" or op == "==" then
-            return self.count == value
+            return item.count == value
         elseif op == ">" then
-            return self.count > value
+            return item.count > value
         elseif op == "<" then
-            return self.count < value
+            return item.count < value
         elseif op == ">=" then
-            return self.count >= value
+            return item.count >= value
         elseif op == "<=" then
-            return self.count <= value
+            return item.count <= value
         end
         error(("Invalid operator %s"):format(op))
+    end,
+    STACKABLE = function(self, item)
+        return item.maxCount > 1
     end
 }
 
@@ -92,6 +95,8 @@ function ItemDescriptor__index:serialize()
         s = "*"
     elseif self.type == "COUNT" then
         s = "#" .. self.op .. self.value
+    elseif self.type == "STACKABLE" then
+        s = "S"
     else
         error(("Serialization not implemented for type %s!"):format(self.type))
     end
@@ -192,7 +197,11 @@ end
 function Item.hasCount(op, count)
     expect(1, op, "string")
     expect(2, count, "number")
-    return setmetatable({ op = op, count = count, type = "COUNT" }, ItemDescriptor)
+    return setmetatable({ op = op, value = count, type = "COUNT" }, ItemDescriptor)
+end
+
+function Item.stackable()
+    return setmetatable({ type = "STACKABLE" }, ItemDescriptor)
 end
 
 ---@param s string
@@ -267,6 +276,8 @@ function Item.unserialize(s)
         value = tonumber(value)
         assert(type(value) == "number", "Invalid # number.")
         return Item.hasCount(op, value)
+    elseif ch == "S" then
+        return Item.stackable()
     end
     error("Could not unserialize ItemDescriptor!")
 end

@@ -16,3 +16,7 @@ Dropdown {
     border_thickness = 1
     border_layer = px
 }
+
+Checkbox {
+    fill_color:pressed = black
+}

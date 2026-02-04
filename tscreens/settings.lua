@@ -133,7 +133,7 @@ local function default_setting(self)
     _ENV[self.meta] = "nil"
 end
 
-_ENV.tapi.register_screen("setting_edit", {
+local setting_edit_args = {
     type = "Screen",
     content = {
         {
@@ -214,25 +214,6 @@ _ENV.tapi.register_screen("setting_edit", {
                     horizontal_alignment = "right"
                 },
                 {
-                    type = "Input",
-                    x = 12,
-                    y = 4,
-                    w = "w-13",
-                    h = 1,
-                    value = "$selected_setting_evalue_g$",
-                    hidden = "$selected_setting.raw.options or selected_setting.raw.side == 'local'$"
-                },
-                {
-                    type = "Dropdown",
-                    x = 12,
-                    y = 4,
-                    w = "w-13",
-                    h = 1,
-                    options = "$selected_setting.raw.options or {}$",
-                    value = "$selected_setting_evalue_g$",
-                    hidden = "$not selected_setting.raw.options or selected_setting.raw.side == 'local'$"
-                },
-                {
                     type = "Button",
                     x = "w-1",
                     y = 4,
@@ -252,25 +233,6 @@ _ENV.tapi.register_screen("setting_edit", {
                     h = 1,
                     text = "Local |",
                     horizontal_alignment = "right"
-                },
-                {
-                    type = "Input",
-                    x = 12,
-                    y = 5,
-                    w = "w-13",
-                    h = 1,
-                    value = "$selected_setting_evalue_l$",
-                    hidden = "$selected_setting.raw.options or selected_setting.raw.side == 'global'$"
-                },
-                {
-                    type = "Dropdown",
-                    x = 12,
-                    y = 5,
-                    w = "w-13",
-                    h = 1,
-                    options = "$selected_setting.raw.options or {}$",
-                    value = "$selected_setting_evalue_l$",
-                    hidden = "$not selected_setting.raw.options or selected_setting.raw.side == 'global'$"
                 },
                 {
                     type = "Button",
@@ -360,7 +322,45 @@ _ENV.tapi.register_screen("setting_edit", {
             on_click = save_setting
         }
     }
-})
+}
+
+local setting_edit_content = setting_edit_args.content[2].content
+local function add_setting_edit_field(y, vstr, hstr)
+    local w = "w-13"
+    local x = 12
+    setting_edit_content[#setting_edit_content + 1] = {
+        type = "Input",
+        x = x,
+        y = y,
+        w = w,
+        h = 1,
+        value = vstr,
+        hidden = "$selected_setting.raw.options or selected_setting.raw.type == 'boolean' or " .. hstr
+    }
+    setting_edit_content[#setting_edit_content + 1] = {
+        type = "Dropdown",
+        x = x,
+        y = y,
+        w = w,
+        h = 1,
+        options = "$selected_setting.raw.options or {}$",
+        value = vstr,
+        hidden = "$not selected_setting.raw.options or " .. hstr
+    }
+    setting_edit_content[#setting_edit_content + 1] = {
+        type = "Dropdown",
+        x = x,
+        y = y,
+        w = w,
+        h = 1,
+        options = { true, false },
+        value = vstr,
+        hidden = "$selected_setting.raw.type ~= 'boolean' or " .. hstr
+    }
+end
+add_setting_edit_field(4, "$selected_setting_evalue_g$", "selected_setting.raw.side == 'local'$")
+add_setting_edit_field(5, "$selected_setting_evalue_l$", "selected_setting.raw.side == 'global'$")
+_ENV.tapi.register_screen("setting_edit", setting_edit_args)
 
 
 local function smart_reboot()

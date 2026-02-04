@@ -24,10 +24,11 @@ return {
         "cc.sthm"
     },
     tscreens = {
+        "about.lua",
+        "help.lua",
         "listing.lua",
         "settings.lua",
         "tasks.lua",
-        "about.lua"
     },
     "crafter.lua",
     "host.lua",

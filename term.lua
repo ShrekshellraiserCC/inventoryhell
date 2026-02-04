@@ -19,6 +19,10 @@ local STL = require "libs.STL"
 local ID = require "libs.ItemDescriptor"
 local scheduler = STL.Scheduler()
 
+if sset.get(sset.debug) then
+    enable_debug = true
+end
+
 clientlib.open()
 local lname = turtle and assert(clientlib.modem.getNameLocal(), "This device is not connected via this modem!")
 local invName = sset.get(sset.termInventory)
@@ -111,7 +115,11 @@ function tapi.clear_locked_slots()
 end
 
 function tapi.empty_inventory()
-    emptyTurtleInventory()
+    if turtle then
+        emptyTurtleInventory()
+    elseif invName then
+        emptyExternalInventory()
+    end
 end
 
 local tw, th = term.getSize()
@@ -119,7 +127,7 @@ local win = window.create(term.current(), 1, 1, tw, th)
 term.clear()
 
 ---@class SSDTermPluginENV
-local env = {
+local env = setmetatable({
     back_icon = "\27",
     search_bar = "",
     setting_search_bar = "",
@@ -134,13 +142,8 @@ local env = {
     end,
     selected_setting = {},
     textutils = textutils,
-    tostring = tostring,
-    ipairs = ipairs,
-    pairs = pairs,
     debug_overlay = false,
-    type = type,
-    require = require
-}
+}, { __index = _ENV })
 
 ---@class BackButtonTemplateArgs : shrekui.ButtonArgs
 ---@field text string?
@@ -200,19 +203,24 @@ end
 
 ---@type table<string,shrekui.Screen>
 local screens = {}
+---@type table<string,function>
+local screenCallbacks = {}
 ---@type string[]
 local screenList = {}
 ---@param name string
 ---@param screen shrekui.Screen
-local function register_screen_raw(name, screen)
+---@param callback function?
+local function register_screen_raw(name, screen, callback)
     screens[name] = screen
     screen.meta = name
     screenList[#screenList + 1] = name
+    screenCallbacks[name] = callback
     return screen
 end
 ---@param name string
 ---@param layout table
-local function register_screen(name, layout)
+---@param callback function? Called when the screen is opened
+local function register_screen(name, layout, callback)
     layout.content[#layout.content + 1] = {
         type = "Text",
         x = "w+1-" .. env.capi.statusWidth,
@@ -235,7 +243,7 @@ local function register_screen(name, layout)
         text = ""
     }
     local screen = ui.load_screen(layout, env)
-    return register_screen_raw(name, screen)
+    return register_screen_raw(name, screen, callback)
 end
 tapi.register_screen = register_screen
 
@@ -382,11 +390,16 @@ end
 local current_screen
 local screen_stack = {}
 function tapi.open_screen(name)
+    current_screen:reset_held()
     screen_stack[#screen_stack + 1] = current_screen.meta
     current_screen = screens[name]
+    if screenCallbacks[name] then
+        screenCallbacks[name]()
+    end
 end
 
 function tapi.back()
+    current_screen:reset_held()
     local top = table.remove(screen_stack)
     if top then
         current_screen = screens[top]
@@ -463,6 +476,7 @@ load_screen("tscreens/listing.lua")
 load_screen("tscreens/tasks.lua")
 load_screen("tscreens/settings.lua")
 load_screen("tscreens/about.lua")
+load_screen("tscreens/help.lua")
 
 if enable_host then
     local host = require("host")

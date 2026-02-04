@@ -245,8 +245,9 @@ end
 sset.register = registerSetting
 
 sset.version = registerSetting(
-    "version", "The version of SSD last installed to this system. Do not modify.", "string", nil, true, "global"
+    "sset:version", "The version of SSD last installed to this system. Do not modify.", "string", nil, true, "global"
 )
+sset.debug = registerSetting("sset:debug", "Debug mode.", "boolean", false, true, "both")
 sset.program = registerSetting(
     "boot:program", "What function does this computer serve?", "string", nil, true, "local",
     { "host", "term", "crafter", "host+term" })
@@ -254,26 +255,28 @@ sset.hid = registerSetting("boot:hid", "Storage Host ID", "number", nil, true, "
 sset.hmn = registerSetting("boot:hmn", "Storage Host Modem Name", "string", nil, true, "global")
 sset.installDir = registerSetting("boot:installDir", "Installation directory", "string", cwd, true, "global")
 
-sset.hideExtra = registerSetting("term:hideExtra", "Hide NBT and other data", "boolean", true, true)
 sset.debounceDelay = registerSetting("term:debounceDelay", "Debounce turtle_inventory by waiting this long.", "number",
     0.2, true)
 sset.termInventory = registerSetting("term:inventory", "Which inventory to use for I/O for this term.", "string", nil,
     true, "local")
 sset.termInventoryPoll = registerSetting("term:inventoryPoll",
     "How frequently to poll the configured inventory for changes", "number", 1, true, "local")
-sset.termItemFilters = registerSetting("term:itemFilters",
+sset.termListingCategories = registerSetting("term:listingCategories",
     "Preset categories for filtering items.", "table", {
-        ["All"] = "*",
-        ["Stored"] = "#>0",
-        ["Craftables"] = "#=0"
+        { "All",          "*" },
+        { "Stored",       "#>0" },
+        { "Craftables",   "#=0" }, -- TODO implement craftable ItemDescriptor
+        { "Non-stacking", "!S" }
     }, true, "both")
+sset.requestScreenType = registerSetting("term:requestScreenType",
+    "Whether to use the new key-chord based item request screen, or a simple count input box.", "string",
+    "chord", true, "both", { "chord", "input" })
 
-sset.scrollDelay = registerSetting("ui:scrollDelay", "Horizontal Text Scrolling Delay", "number", 0.15, true)
 sset.theme = registerSetting("ui:theme", [[
 Color theme to use for UIs as path to .lua theme file.
 Invalid paths reset to default palette.
 Paths are absolute.
-]], "string", sset.getInstalledPath "themes/cc.sthm", true, "both")
+]], "string", sset.getInstalledPath "themes/gnome.sthm", true, "both")
 
 sset.settingChangeCheckInterval = registerSetting("sset:settingChangeCheckInterval",
     "Delay between checking whether the config files have been updated.", "number", 5, nil, "global")
