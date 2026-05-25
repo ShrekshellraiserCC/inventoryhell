@@ -241,6 +241,11 @@ function clientlib.saveRecipes()
     return sendAndRecieve({ type = "saveRecipes" })
 end
 
+---@return RegisteredMachineType[]
+function clientlib.listMachineTypes()
+    return sendAndRecieve({ type = "listMachineTypes" })[1]
+end
+
 function clientlib.ping()
     return sendAndRecieve({ type = "ping" })
 end

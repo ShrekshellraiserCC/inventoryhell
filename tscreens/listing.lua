@@ -3,7 +3,8 @@ local ItemDescriptor = require "libs.ItemDescriptor"
 ---@class SSDTermPluginENV
 _ENV = _ENV
 
-local debug_ignore_listing_updates = false
+local debug_ignore_listing_updates = true
+turtle = { craft = function() end }
 
 local function item_select(self, item, idx)
     ---@cast self shrekui.Screen
@@ -134,9 +135,10 @@ end
 _ENV.tapi.register_screen("listing", {
     type = "Screen",
     content = {
+        _ENV.back_button_template(),
         {
             type = "Dropdown",
-            x = 1,
+            x = 3,
             y = 1,
             w = 10,
             h = 1,
@@ -145,12 +147,9 @@ _ENV.tapi.register_screen("listing", {
             class = "heading",
             on_change = listing_category_change
         },
-        _ENV.back_button_template {
-            z = 1.3,
-        },
         {
             type = "Button",
-            x = 2,
+            x = 1,
             y = "h",
             w = 3,
             h = 1,
@@ -162,10 +161,10 @@ _ENV.tapi.register_screen("listing", {
         },
         {
             type = "Input",
-            x = 5,
+            x = 4,
             y = "h",
             h = 1,
-            w = "w-((turtle and turtle.craft) and 10 or 4)",
+            w = "w-((turtle and turtle.craft) and 9 or 3)",
             z = 1.3,
             ignore_focus = true,
             always_update = true,
@@ -236,7 +235,7 @@ _ENV.tapi.register_screen("listing", {
         {
             type = "Frame",
             x = "w-10",
-            y = "h-3",
+            y = "h-4",
             w = 11,
             h = 4,
             z = 2,

@@ -153,15 +153,14 @@ local env = setmetatable({
 env.back_button_template = function(override)
     local t = {
         type = "Button",
-        x = 1,
-        y = "h",
         h = 1,
-        w = 1,
+        w = 2,
         text = "\27",
         key = "tab",
         on_click = "$tapi.back$",
         horizontal_alignment = "left",
-        id = "back-button"
+        id = "back-button",
+        class = "heading"
     }
     if override then
         for k, v in pairs(override) do
@@ -305,7 +304,8 @@ local menu_layout = {
             layout = "hbox",
             h = 1,
             y = "h",
-            z = 3
+            z = 3,
+            wz_offset = 1
         },
         {
             type = "Text",
@@ -321,6 +321,7 @@ local menu_layout = {
             w = "w",
             h = 11,
             z = 2,
+            wz_offset = 2,
             class = "submenu",
             hidden = "$not power_menu_open$",
             content = {
@@ -409,6 +410,10 @@ end
 local function ui_event_loop()
     while true do
         local e = table.pack(os.pullEvent())
+        if e[1] == "term_resize" then
+            win.reposition(1, 1, term.getSize())
+            current_screen:calculate_shape()
+        end
         current_screen:on_event_raw(e)
     end
 end
@@ -424,21 +429,12 @@ local function ui_render_loop()
         win.setVisible(false)
         win.clear()
         current_screen:render_to(win)
-        -- local b = current_screen._box
-        -- b.overlay = env.debug_overlay
-        -- b.profiler.collapse("shrekbox", false)
         win.setTextColor(colors.white)
         win.setBackgroundColor(colors.blue)
         win.setVisible(true)
-        -- b.profiler.start_yield("sleep")
         repeat until select(2, os.pullEvent("timer")) == tid
-        -- b.profiler.end_yield("sleep")
     end
 end
-
-clientlib.setLogger(function(s, ...)
-    env.logged = s:format(...)
-end)
 
 if turtle then
     scheduler.queueTask(STL.Task.new({
@@ -477,21 +473,15 @@ load_screen("tscreens/tasks.lua")
 load_screen("tscreens/settings.lua")
 load_screen("tscreens/about.lua")
 load_screen("tscreens/help.lua")
+load_screen("tscreens/log.lua")
+load_screen("tscreens/crafting.lua")
 
 if enable_host then
     local host = require("host")
     scheduler.queueTask(STL.Task.new({ host.run }, "Host"))
-    host.screen:add_widget(ui.classes.Button:new {
-        x = 1,
-        y = "h",
-        h = 1,
-        w = 1,
-        text = "\27",
-        key = "tab",
-        on_click = tapi.back,
-        horizontal_alignment = "left",
-        id = "back-button"
-    })
+    host.screen:add_widget(ui.classes.Button:new(env.back_button_template {
+        on_click = env.tapi.back
+    }))
     register_screen_raw("host", host.screen)
     register_menu_button(1, "Host", "host")
 end
@@ -528,6 +518,8 @@ scheduler.queueTask(STL.Task.new({
 
 local ok, err = pcall(scheduler.run)
 -- TODO get the error out better!!!
+win.clear()
+win.setVisible(true)
 if not ok and err ~= "Terminated" then
     ui.load_screen {
         type = "Screen",

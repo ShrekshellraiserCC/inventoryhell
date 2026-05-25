@@ -43,8 +43,6 @@ local about_layout = {
             type = "Button",
             h = 1,
             y = "h",
-            x = 2,
-            w = "w-1",
             text = "Check for Update",
             on_click = check_for_update
         },
@@ -82,8 +80,15 @@ _ENV.tapi.register_screen("no_update", {
             h = "h-2",
             text = "You have the latest version of SSD published."
         },
-        _ENV.back_button_template {
-            w = "w/2"
+        _ENV.back_button_template(),
+        {
+            type = "Button",
+            y = "h",
+            h = 1,
+            w = "w/2",
+            text = "Cancel",
+            horizontal_alignment = "left",
+            on_click = _ENV.tapi.back
         },
         {
             type = "Button",
@@ -107,9 +112,15 @@ _ENV.tapi.register_screen("update_available", {
             h = "h-2",
             text = "There is an update available, do you want to install it?"
         },
-        _ENV.back_button_template {
+        _ENV.back_button_template(),
+        {
+            type = "Button",
+            y = "h",
+            h = 1,
             w = "w/2",
-            text = "Cancel"
+            text = "Cancel",
+            horizontal_alignment = "left",
+            on_click = _ENV.tapi.back
         },
         {
             type = "Button",
@@ -120,7 +131,7 @@ _ENV.tapi.register_screen("update_available", {
             text = "Install",
             horizontal_alignment = "right",
             on_click = do_update
-        }
+        },
     }
 })
 

@@ -55,8 +55,6 @@ local screenArgs = {
             y = "h",
             class = "heading",
             text = "$fstr$",
-            x = beingRequired and 2 or 1,
-            w = beingRequired and "w - 1" or "w",
             horizontal_alignment = "left"
         }
     }
@@ -194,6 +192,9 @@ local function main()
     registerMessageHandler("saveRecipes", function()
         inv.craft.saveRecipes()
         return true
+    end)
+    registerMessageHandler("listMachineTypes", function()
+        return inv.craft.listMachineTypes()
     end)
 
     ---@param msg table

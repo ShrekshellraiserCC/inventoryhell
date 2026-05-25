@@ -6,7 +6,7 @@ _ENV.tapi.register_screen("tasks", {
         _ENV.back_button_template(),
         {
             type = "Dropdown",
-            x = 1,
+            x = 3,
             y = 1,
             w = 10,
             h = 1,

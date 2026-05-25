@@ -63,17 +63,15 @@ _ENV.tapi.register_screen("settings", {
         {
             type = "Text",
             h = 1,
-            text = "nterm",
-            horizontal_alignment = "left",
+            text = "Settings",
             class = "heading"
         },
         _ENV.back_button_template(),
         {
             type = "Input",
-            x = 2,
+            x = 1,
             y = "h",
             h = 1,
-            w = "w-1",
             ignore_focus = true,
             always_update = true,
             on_change = setting_search_change,
@@ -140,9 +138,9 @@ local setting_edit_args = {
             type = "Text",
             h = 1,
             text = "Edit Setting",
-            horizontal_alignment = "left",
             class = "heading"
         },
+        _ENV.back_button_template(),
         {
             type = "Frame",
             x = 1,
@@ -307,10 +305,8 @@ local setting_edit_args = {
             h = 1,
             w = "w/2",
             text = "$'\\27 Cancel'$",
-            key = "tab",
             on_click = "$tapi.back$",
-            horizontal_alignment = "left",
-            id = "back-button"
+            horizontal_alignment = "left"
         },
         {
             type = "Button",
@@ -324,7 +320,7 @@ local setting_edit_args = {
     }
 }
 
-local setting_edit_content = setting_edit_args.content[2].content
+local setting_edit_content = setting_edit_args.content[3].content
 local function add_setting_edit_field(y, vstr, hstr)
     local w = "w-13"
     local x = 12
@@ -373,11 +369,11 @@ end
 _ENV.tapi.register_screen("setting_reboot", {
     type = "Screen",
     content = {
+        _ENV.back_button_template(),
         {
             type = "Text",
             h = 1,
             text = "Reboot?",
-            horizontal_alignment = "left",
             class = "heading"
         },
         {
@@ -393,7 +389,6 @@ _ENV.tapi.register_screen("setting_reboot", {
             w = "w/2",
             h = 1,
             text = "No",
-            key = "tab",
             on_click = "$tapi.back$",
             id = "back-button"
         },

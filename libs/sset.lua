@@ -266,7 +266,8 @@ sset.termListingCategories = registerSetting("term:listingCategories",
         { "All",          "*" },
         { "Stored",       "#>0" },
         { "Craftables",   "#=0" }, -- TODO implement craftable ItemDescriptor
-        { "Non-stacking", "!S" }
+        { "Non-stacking", "!S" },
+        { "Wood",         "(Tminecraft:logs|Tminecraft:planks)" },
     }, true, "both")
 sset.requestScreenType = registerSetting("term:requestScreenType",
     "Whether to use the new key-chord based item request screen, or a simple count input box.", "string",

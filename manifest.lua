@@ -1,18 +1,18 @@
 return {
     libs = {
         "ACL.lua",
-        "bixelbox.lua",
         "clientlib.lua",
         "Coordinates.lua",
         "ItemDescriptor.lua",
         ["shrekbox.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekbox.lua",
         ["shrekdraw.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekdraw.lua",
         ["shrektheme.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrektheme.lua",
-        ["shrekui.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/ui.lua",
+        shrekui = {
+            ["init.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/ui/init.lua"
+        },
         "shrexpect.lua",
         "sset.lua",
         "STL.lua",
-        "ui.lua",
         "VirtualInv.lua",
         ["update.lua"] = "https://raw.githubusercontent.com/ShrekshellraiserCC/inventoryhell/refs/heads/main/install.lua"
     },
@@ -25,12 +25,13 @@ return {
     },
     tscreens = {
         "about.lua",
+        "crafting.lua",
         "help.lua",
         "listing.lua",
+        "log.lua",
         "settings.lua",
         "tasks.lua",
     },
-    "crafter.lua",
     "host.lua",
     "setup.lua",
     "term.lua",

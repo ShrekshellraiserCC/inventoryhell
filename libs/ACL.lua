@@ -241,8 +241,9 @@ function lib.wrap(invList, wmodem, tracker, logger)
     local busyMachines = {}
     ---@type table<string,RegisteredMachineType> inv index,slot
     local registeredMachineTypes = {}
-    ---@type string[]
-    local machineTypeList = {}
+    ---@type table<integer,string>
+    local machineTypeLut = {}
+    local lastMachineTypeID = 1
     ---@type table<string,RegisteredMachine>
     local registeredMachines = {}
 
@@ -254,7 +255,7 @@ function lib.wrap(invList, wmodem, tracker, logger)
     ---@field produces integer
     ---@field product ItemCoordinate
 
-    machineTypeList[1] = "grid"
+    machineTypeLut[1] = "grid"
     registeredMachineTypes.grid = {
         id = 1,
         output = { 0, 0 },
@@ -442,7 +443,7 @@ function lib.wrap(invList, wmodem, tracker, logger)
             produces = tonumber(produces),
             product = coordLib.ItemCoordinate(IDCacheList[tonumber(productID)]:sub(2)),
             recipe = {},
-            type = machineTypeList[tonumber(rtype)]
+            type = machineTypeLut[tonumber(rtype)]
         }
         for i = 1, itemCount do
             ---@type integer|pair?
@@ -467,8 +468,8 @@ function lib.wrap(invList, wmodem, tracker, logger)
         ---@type RegisteredMachine
         local m = {
             invs = {},
-            mtype = machineTypeList[tonumber(machineID)],
-            ptype = pmachineID ~= "" and machineTypeList[tonumber(pmachineID)] or nil,
+            mtype = machineTypeLut[tonumber(machineID)],
+            ptype = pmachineID ~= "" and machineTypeLut[tonumber(pmachineID)] or nil,
             name = name
         }
         local idx = finish + 1
@@ -515,8 +516,8 @@ function lib.wrap(invList, wmodem, tracker, logger)
             smachines[#smachines + 1] = sm
         end
         local stypes = {}
-        for _, mt in ipairs(machineTypeList) do
-            local sm = serializeMachineType(registeredMachineTypes[mt])
+        for _, mt in pairs(registeredMachineTypes) do
+            local sm = serializeMachineType(mt)
             stypes[#stypes + 1] = sm
         end
         saveFile(recipeFN, sreps)
@@ -540,11 +541,14 @@ function lib.wrap(invList, wmodem, tracker, logger)
         local smachines = readFromFile(machinesFN) --[[@as string[] ]]
         local stypes = readFromFile(machineTypesFN) --[[@as string[] ]]
         registeredMachineTypes = {}
-        machineTypeList = {}
+        machineTypeLut = {}
+        lastMachineTypeID = 0
         freeMachines = {}
         busyMachines = {}
         for i, v in ipairs(stypes) do
             local st = unserializeMachineType(v)
+            lastMachineTypeID = math.max(lastMachineTypeID, st.id)
+            machineTypeLut[st.mtype] = st.id
             if st.ptype ~= "" then
                 this.craft.newAlternativeMachineType(st.mtype, st.ptype, st.slots, st.output)
             else
@@ -759,10 +763,6 @@ function lib.wrap(invList, wmodem, tracker, logger)
         end
         return math.ceil(n / produces)
     end
-    local function machineRound(machine, n, produces)
-        local m = registeredMachines[machine]
-        return machineRoundType(m.mtype, n, produces)
-    end
 
     ---@param callback fun():string,integer,{[1]:string,[2]:integer}[]
     local function machineProcess(callback)
@@ -822,12 +822,13 @@ function lib.wrap(invList, wmodem, tracker, logger)
     ---@param process MachineProcess? Function ran alongside item i/o functions
     function this.craft.newMachineType(mtype, slotmap, outputSlot, round, process)
         local idx
-        if registeredMachineTypes[mtype] then
-            idx = registeredMachineTypes[mtype].id
+        if machineTypeLut[mtype] then
+            idx = machineTypeLut[mtype]
         else
-            idx = #machineTypeList + 1
+            lastMachineTypeID = lastMachineTypeID + 1
+            idx = lastMachineTypeID
         end
-        machineTypeList[idx] = mtype
+        machineTypeLut[idx] = mtype
         registeredMachineTypes[mtype] = {
             slots = slotmap,
             output = outputSlot,
@@ -847,9 +848,15 @@ function lib.wrap(invList, wmodem, tracker, logger)
     ---@param outputslot SlotMap
     ---@param process MachineProcess? Function ran alongside item i/o functions
     function this.craft.newAlternativeMachineType(mtype, ptype, slotmap, outputslot, process)
+        local idx = lastMachineTypeID
+        if machineTypeLut[mtype] then
+            idx = machineTypeLut[mtype]
+        else
+            lastMachineTypeID = lastMachineTypeID + 1
+            idx = lastMachineTypeID
+        end
         if not registeredMachineTypes[mtype] then
-            local idx = #machineTypeList + 1
-            machineTypeList[idx] = mtype
+            machineTypeLut[idx] = mtype
             registeredMachineTypes[mtype] = {
                 slots = slotmap,
                 output = outputslot,
@@ -870,6 +877,19 @@ function lib.wrap(invList, wmodem, tracker, logger)
         local ptype = registeredMachineTypes[mtype].ptype
         registeredMachines[name] = { invs = invs, mtype = mtype, ptype = ptype, name = name }
         freeMachines[ptype or mtype][name] = true
+    end
+
+    ---@return RegisteredMachineType[]
+    function this.craft.listMachineTypes()
+        local listing = {}
+        for k, v in pairs(registeredMachineTypes) do
+            listing[#listing + 1] = v
+        end
+        return listing
+    end
+
+    function this.craft.listMachines()
+
     end
 
     ---@class MachineCraftTaskFactory
