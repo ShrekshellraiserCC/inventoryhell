@@ -1,3 +1,4 @@
+local shrexpect = require "libs.shrexpect"
 local args = { ... }
 local enable_host
 local enable_debug
@@ -112,6 +113,35 @@ end
 
 function tapi.clear_locked_slots()
     lockedTurtleSlots = {}
+    os.queueEvent("turtle_inventory")
+end
+
+function tapi.inventory_size()
+    if turtle then
+        return 16
+    elseif invName then
+        return peripheral.call(invName, "size")
+    end
+    return 0
+end
+
+function tapi.list_inventory()
+    if turtle then
+        local list = {}
+        for i = 1, 16 do
+            if turtle.getItemCount(i) > 0 then
+                list[i] = turtle.getItemDetail(i, true)
+            end
+        end
+        return list
+    elseif invName then
+        local l = peripheral.call(invName, "list")
+        for i, v in pairs(l) do
+            l[i] = peripheral.call(invName, "getItemDetail", i)
+        end
+        return l
+    end
+    return {}
 end
 
 function tapi.empty_inventory()
@@ -150,7 +180,7 @@ local env = setmetatable({
 
 ---@param override BackButtonTemplateArgs?
 ---@return shrekui.ButtonArgs
-env.back_button_template = function(override)
+function tapi.back_button_template(override)
     local t = {
         type = "Button",
         h = 1,
@@ -170,8 +200,23 @@ env.back_button_template = function(override)
     return t
 end
 
-env.open_screen_button = function(self)
-    tapi.open_screen(self.meta)
+env.back_button_template = tapi.back_button_template -- BACK COMPAT TODO REPLACE THIS
+
+---@param text string
+---@param override BackButtonTemplateArgs?
+function tapi.header_template(text, override)
+    local t = {
+        type = "Text",
+        class = "heading",
+        h = 1,
+        text = text
+    }
+    if override then
+        for k, v in pairs(override) do
+            t[k] = v
+        end
+    end
+    return t
 end
 
 ---@param item CCItemInfo
@@ -219,7 +264,9 @@ end
 ---@param name string
 ---@param layout table
 ---@param callback function? Called when the screen is opened
-local function register_screen(name, layout, callback)
+---@param penv table? Parent environment, shadows the normal screen environment.
+---@see SSDTermAPI
+local function register_screen(name, layout, callback, penv)
     layout.content[#layout.content + 1] = {
         type = "Text",
         x = "w+1-" .. env.capi.statusWidth,
@@ -241,7 +288,8 @@ local function register_screen(name, layout, callback)
         class = "heading",
         text = ""
     }
-    local screen = ui.load_screen(layout, env)
+    local senv = penv and setmetatable(penv, { __index = env }) or env
+    local screen = ui.load_screen(layout, senv)
     return register_screen_raw(name, screen, callback)
 end
 tapi.register_screen = register_screen
@@ -341,7 +389,8 @@ local menu_layout = {
                     h = 3,
                     w = "w",
                     text = "Force Reboot Server",
-                    on_click = "$capi.forceRebootServer$"
+                    on_click = "$capi.forceRebootServer$",
+                    class = "danger-button"
                 },
                 {
                     type = "Button",
@@ -389,13 +438,17 @@ end
 
 ---@type shrekui.Screen
 local current_screen
+---@type shrekui.Screen[]
 local screen_stack = {}
+---@param name string
 function tapi.open_screen(name)
+    shrexpect({ "string" }, { name })
     current_screen:reset_held()
     screen_stack[#screen_stack + 1] = current_screen.meta
     current_screen = screens[name]
+    assert(current_screen, ("No screen with ID %s"):format(name))
     if screenCallbacks[name] then
-        screenCallbacks[name]()
+        screenCallbacks[name](current_screen)
     end
 end
 
@@ -404,6 +457,10 @@ function tapi.back()
     local top = table.remove(screen_stack)
     if top then
         current_screen = screens[top]
+        local name = current_screen.meta
+        if screenCallbacks[name] then
+            screenCallbacks[name](current_screen)
+        end
     end
 end
 
@@ -468,6 +525,7 @@ local function load_screen(fn)
     assert(load(s, fn, "t", env))()
 end
 
+load_screen("tscreens/utils.lua")
 load_screen("tscreens/listing.lua")
 load_screen("tscreens/tasks.lua")
 load_screen("tscreens/settings.lua")
@@ -503,9 +561,6 @@ clientlib.subscribeTo({
 })
 
 scheduler.queueTask(STL.Task.new({
-    init
-}, "Init"))
-scheduler.queueTask(STL.Task.new({
     ui_event_loop, ui_render_loop
 }, "UI"))
 scheduler.queueTask(STL.Task.new({
@@ -514,6 +569,9 @@ scheduler.queueTask(STL.Task.new({
 scheduler.queueTask(STL.Task.new({
     sset.checkForChangesThread
 }, "Settings"))
+scheduler.queueTask(STL.Task.new({
+    init
+}, "Init"))
 
 
 local ok, err = pcall(scheduler.run)

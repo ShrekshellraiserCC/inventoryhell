@@ -94,7 +94,7 @@ local function getUid()
     return uid
 end
 
----@return table|number|boolean?
+---@return ...
 local function sendAndRecieve(msg)
     local id = getUid()
     msg.id = id
@@ -115,7 +115,7 @@ local function sendAndRecieve(msg)
                 throbberState = " "
                 log("Got response for %d", id)
                 updateStatusString()
-                return response.result
+                return table.unpack(response.result)
             elseif response.type == "ACK" and response.ftype == msg.type then
                 gotAck = true
                 log("Got ACK for %d", id)
@@ -154,25 +154,26 @@ end
 ---List out items in this storage
 ---@return CCItemInfo[]
 function clientlib.list()
-    return (sendAndRecieve({ type = "list", side = "client" }) or { {} })[1]
+    return sendAndRecieve({ type = "list", side = "client" }) or {}
 end
 
 ---List out the Recipes this storage has
 ---@return RecipeInfo[]
 function clientlib.listRecipes()
-    return (sendAndRecieve({ type = "listRecipes", side = "client" }) or { {} })[1]
+    return sendAndRecieve({ type = "listRecipes", side = "client" }) or {}
 end
 
 ---Get the usage of each real slot in the inventory as a percentage [0,1]. Non-stackable items have a value of 2.
 ---@return FragMap
 function clientlib.getFragMap()
-    return (sendAndRecieve({ type = "getFragMap", side = "client" }) or { {} })[1]
+    return sendAndRecieve({ type = "getFragMap", side = "client" }) or {}
 end
 
 ---Remove an inventory from the system's cache
 ---@param inv string
-function clientlib.removeInventory(inv)
-    return sendAndRecieve({ type = "removeInventory", side = "client", inv = inv })
+---@param label string?
+function clientlib.removeInventory(inv, label)
+    return sendAndRecieve({ type = "removeInventory", side = "client", inv = inv, label = label })
 end
 
 ---Push items into some inventory
@@ -198,20 +199,18 @@ end
 ---@return integer
 ---@return ItemCoordinate
 function clientlib.pullItems(from, slot, limit)
-    local res = sendAndRecieve({
+    return sendAndRecieve({
         type = "pullItems",
         side = "client",
         from = from,
         slot = slot,
         limit = limit
-    }) or { 0, "" }
-    return res[1], res[2]
+    })
 end
 
 ---@return TaskListInfo[]
 function clientlib.listTasks()
-    local res = sendAndRecieve({ type = "listThreads" }) or { {} }
-    return res[1]
+    return sendAndRecieve({ type = "listThreads" }) or {}
 end
 
 function clientlib.rebootAll()
@@ -243,7 +242,81 @@ end
 
 ---@return RegisteredMachineType[]
 function clientlib.listMachineTypes()
-    return sendAndRecieve({ type = "listMachineTypes" })[1]
+    return sendAndRecieve({ type = "listMachineTypes" }) or {}
+end
+
+---@param mtype string
+---@param slotmap SlotMap[]
+---@param outputmap SlotMap
+---@param ptype string?
+function clientlib.setMachineType(mtype, slotmap, outputmap, ptype)
+    return sendAndRecieve({
+        type = "setMachineType",
+        mtype = mtype,
+        slotmap = slotmap,
+        outputmap = outputmap,
+        ptype = ptype
+    })
+end
+
+---@param mtype string
+function clientlib.deleteMachineType(mtype)
+    return sendAndRecieve({
+        type = "deleteMachineType",
+        mtype = mtype
+    })
+end
+
+---@param mtype string?
+---@return RegisteredMachine[]
+function clientlib.listMachines(mtype)
+    return sendAndRecieve({
+        type = "listMachines",
+        mtype = mtype
+    }) or {}
+end
+
+---@param mtype string
+---@param name string
+---@param invs string[]
+function clientlib.setMachine(mtype, name, invs)
+    return sendAndRecieve({
+        type = "setMachine",
+        mtype = mtype,
+        name = name,
+        invs = invs
+    })
+end
+
+---@param name string
+function clientlib.deleteMachine(name)
+    return sendAndRecieve({
+        type = "deleteMachine",
+        name = name
+    })
+end
+
+---@param mtype string
+---@param items string[] ItemDescriptors
+---@param recipe integer[]|pair[]
+---@param product ItemCoordinate
+---@param produces integer
+function clientlib.setRecipe(mtype, items, recipe, product, produces)
+    return sendAndRecieve({
+        type = "setRecipe",
+        mtype = mtype,
+        items = items,
+        recipe = recipe,
+        product = product,
+        produces = produces
+    })
+end
+
+---@return ssd.libs.registry.entry[]
+function clientlib.listPeripherals()
+    return sendAndRecieve({
+        type = "listPeripherals"
+    }) or {}
 end
 
 function clientlib.ping()
@@ -279,12 +352,14 @@ end
 ---@field start fun(l:CCItemInfo[],fragMap:FragMap)? Called when the server finishes starting
 ---@field tasks fun(l:TaskListInfo[])? Called when the s erver publishes a list of running tasks
 ---@field progress fun(stage:string,total:integer,scanned:integer,eta:number,etaStr:string)? Called while the server is starting with progress information
+---@field peripherals fun(l:ssd.libs.registry.entry[])? Called when the s erver publishes a list of running tasks
 
 local subscriptions = {
     changes = {},
     start = {},
     tasks = {},
-    progress = {}
+    progress = {},
+    peripherals = {}
 }
 
 ---Register a subscriber to various messages published by the server
@@ -301,6 +376,9 @@ function clientlib.subscribeTo(subs)
     end
     if subs.tasks then
         subscriptions.tasks[#subscriptions.tasks + 1] = subs.tasks
+    end
+    if subs.peripherals then
+        subscriptions.peripherals[#subscriptions.peripherals + 1] = subs.peripherals
     end
 end
 
@@ -324,6 +402,8 @@ local function processSubscriptions(msg)
         callAll(subscriptions.tasks, msg.list)
     elseif msg.type == "scanProgress" then
         callAll(subscriptions.progress, msg.stage, msg.total, msg.scanned, msg.eta, msg.etaStr)
+    elseif msg.type == "peripheralUpdate" then
+        callAll(subscriptions.peripherals, msg.peripherals)
     end
 end
 

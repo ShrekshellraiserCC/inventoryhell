@@ -286,6 +286,10 @@ sset.changeBroadcastInterval = registerSetting("host:changeBroadcastInterval",
     "Delay between inventory update packets are broadcast.", "number", 0.2, nil, "global")
 sset.taskBroadcastInterval = registerSetting("host:taskBroadcastInterval", "Delay between task update packets.", "number",
     0.2, true, "global")
+sset.peripheralBroadcastInterval = registerSetting("host:peripheralBroadcastInterval",
+    "Delay between peripheral update packets.", "number",
+    0.2, true, "global")
+
 sset.recipeCacheDir = registerSetting("host:recipeCacheDir",
     "What directory should the recipes be saved in. WARNING: Make sure to save your recipes after changing this!",
     "string", "/", true, "global")

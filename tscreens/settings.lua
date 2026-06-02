@@ -218,10 +218,10 @@ local setting_edit_args = {
                     w = 1,
                     h = 1,
                     text = "x",
-                    class = "clear",
                     hidden = "$selected_setting.raw.side == 'local'$",
                     meta = "selected_setting_evalue_g",
-                    on_click = default_setting
+                    on_click = default_setting,
+                    class = "danger-button"
                 },
                 {
                     type = "Text",
@@ -239,10 +239,10 @@ local setting_edit_args = {
                     w = 1,
                     h = 1,
                     text = "x",
-                    class = "clear",
                     hidden = "$selected_setting.raw.side == 'global'$",
                     meta = "selected_setting_evalue_l",
-                    on_click = default_setting
+                    on_click = default_setting,
+                    class = "danger-button"
                 },
                 {
                     type = "Text",
@@ -306,7 +306,8 @@ local setting_edit_args = {
             w = "w/2",
             text = "$'\\27 Cancel'$",
             on_click = "$tapi.back$",
-            horizontal_alignment = "left"
+            horizontal_alignment = "left",
+            class = "warning-button"
         },
         {
             type = "Button",
@@ -358,9 +359,9 @@ add_setting_edit_field(4, "$selected_setting_evalue_g$", "selected_setting.raw.s
 add_setting_edit_field(5, "$selected_setting_evalue_l$", "selected_setting.raw.side == 'global'$")
 _ENV.tapi.register_screen("setting_edit", setting_edit_args)
 
-
+_ENV.selected_setting = { raw = { side = "global" } }
 local function smart_reboot()
-    if _ENV.selected_setting.raw.side == "local" then
+    if _ENV.selected_setting.raw.side ~= "global" then
         _ENV.reboot()
     end
     _ENV.capi.rebootAll()
@@ -389,18 +390,30 @@ _ENV.tapi.register_screen("setting_reboot", {
             w = "w/2",
             h = 1,
             text = "No",
-            on_click = "$tapi.back$",
-            id = "back-button"
+            on_click = "$tapi.back$"
         },
         {
             type = "Button",
             x = "w/2+1",
             y = "h",
-            w = "w/2",
+            w = "(selected_setting and selected_setting.raw.side ~= 'both') and (w/2) or (w/4)",
             h = 1,
             text = "Yes",
             key = "enter",
-            on_click = smart_reboot
+            on_click = smart_reboot,
+            class = "danger-button"
+        },
+        {
+            type = "Button",
+            x = "3*w/4+2",
+            y = "h",
+            w = "w/4",
+            h = 1,
+            text = "All",
+            key = "enter",
+            hidden = "$selected_setting.raw.side ~= 'both'$",
+            on_click = _ENV.capi.rebootAll,
+            class = "danger-button"
         }
     }
 })

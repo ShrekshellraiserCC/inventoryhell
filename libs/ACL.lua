@@ -33,13 +33,17 @@ end
 ---@param invList string[]
 ---@param wmodem Modem?
 ---@param tracker ScanTracker?
+---@param registry ssd.libs.registry
 ---@return ACL
-function lib.wrap(invList, wmodem, tracker, logger)
+function lib.wrap(invList, wmodem, tracker, logger, registry)
     -- Called 'this' to avoid scope conflictions with 'self'
     ---@class ACL
     local this = {}
     this.scheduler = TaskLib.Scheduler()
 
+    for k, v in ipairs(invList) do
+        registry.mark_used(v, "Storage")
+    end
     local invReserve = VirtualInv.new(invList, tracker, logger)
     this.reserve = invReserve
     invReserve:defrag()
@@ -821,9 +825,11 @@ function lib.wrap(invList, wmodem, tracker, logger)
     ---@param round (fun(n:integer):integer)? Round to most efficient processing interval
     ---@param process MachineProcess? Function ran alongside item i/o functions
     function this.craft.newMachineType(mtype, slotmap, outputSlot, round, process)
+        shrexpect({ "string", "number[][]", "number[]", "function?", "function?" },
+            { mtype, slotmap, outputSlot, round, process })
         local idx
-        if machineTypeLut[mtype] then
-            idx = machineTypeLut[mtype]
+        if registeredMachineTypes[mtype] then
+            idx = registeredMachineTypes[mtype].id
         else
             lastMachineTypeID = lastMachineTypeID + 1
             idx = lastMachineTypeID
@@ -848,6 +854,8 @@ function lib.wrap(invList, wmodem, tracker, logger)
     ---@param outputslot SlotMap
     ---@param process MachineProcess? Function ran alongside item i/o functions
     function this.craft.newAlternativeMachineType(mtype, ptype, slotmap, outputslot, process)
+        shrexpect({ "string", "string", "integer[][]", "integer[]", "function?" },
+            { mtype, ptype, slotmap, outputslot, process })
         local idx = lastMachineTypeID
         if machineTypeLut[mtype] then
             idx = machineTypeLut[mtype]
@@ -873,10 +881,36 @@ function lib.wrap(invList, wmodem, tracker, logger)
     ---@param name string
     ---@param invs string[]?
     function this.craft.registerMachine(mtype, name, invs)
+        shrexpect({ "string", "string", "string[]?" }, { mtype, name, invs })
         invs = invs or { name }
+        local label = "Machine@" .. name
+        for i, v in ipairs(invs) do
+            registry.mark_used(v, label)
+            invReserve:removeInventory(v)
+        end
         local ptype = registeredMachineTypes[mtype].ptype
         registeredMachines[name] = { invs = invs, mtype = mtype, ptype = ptype, name = name }
         freeMachines[ptype or mtype][name] = true
+    end
+
+    ---@param name string
+    function this.craft.deleteMachine(name)
+        local machine = registeredMachines[name]
+        if not machine then return false end
+        if busyMachines[machine.mtype][name] then
+            return false -- machine is in use.
+        end
+        for i, v in ipairs(machine.invs) do
+            registry.mark_free(v)
+        end
+        freeMachines[machine.mtype][name] = nil
+        registeredMachines[name] = nil
+        return true
+    end
+
+    ---@param mtype string
+    function this.craft.deleteMachineType(mtype)
+        error("TODO") -- TODO
     end
 
     ---@return RegisteredMachineType[]
@@ -888,8 +922,18 @@ function lib.wrap(invList, wmodem, tracker, logger)
         return listing
     end
 
-    function this.craft.listMachines()
-
+    ---@param mtype string?
+    ---@return RegisteredMachine[]
+    function this.craft.listMachines(mtype)
+        local l = {}
+        local i = 1
+        for k, v in pairs(registeredMachines) do
+            if mtype == nil or v.mtype == mtype then
+                l[i] = v
+                i = i + 1
+            end
+        end
+        return l
     end
 
     ---@class MachineCraftTaskFactory
@@ -1105,12 +1149,13 @@ function lib.wrap(invList, wmodem, tracker, logger)
         local r = {}
         for i, v in pairs(registeredRecipes) do
             local name, nbt = coordLib.splitItemCoordinate(i)
+            local displayName = this.reserve:getDisplayName(name) or name
             for _, recipe in ipairs(v) do
                 r[#r + 1] = {
                     name = name,
                     coord = i,
                     type = recipe.type,
-                    displayName = this.reserve:getDisplayName(name)
+                    displayName = displayName
                 }
             end
         end

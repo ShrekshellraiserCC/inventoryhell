@@ -1,20 +1,21 @@
 return {
     libs = {
+        shrekui = {
+            ["init.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/ui/init.lua"
+        },
         "ACL.lua",
         "clientlib.lua",
         "Coordinates.lua",
         "ItemDescriptor.lua",
+        "registry.lua",
         ["shrekbox.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekbox.lua",
         ["shrekdraw.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekdraw.lua",
         ["shrektheme.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrektheme.lua",
-        shrekui = {
-            ["init.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/ui/init.lua"
-        },
         "shrexpect.lua",
         "sset.lua",
         "STL.lua",
+        ["update.lua"] = "https://raw.githubusercontent.com/ShrekshellraiserCC/inventoryhell/refs/heads/main/install.lua",
         "VirtualInv.lua",
-        ["update.lua"] = "https://raw.githubusercontent.com/ShrekshellraiserCC/inventoryhell/refs/heads/main/install.lua"
     },
     cplugins = {
         "furnaces.lua"
@@ -31,6 +32,7 @@ return {
         "log.lua",
         "settings.lua",
         "tasks.lua",
+        "utils.lua"
     },
     "host.lua",
     "setup.lua",

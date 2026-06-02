@@ -4,6 +4,8 @@ local stl = require("libs.STL")
 local sset = require("libs.sset")
 local shrekui = require("libs.shrekui")
 local VirtualInv = require("libs.VirtualInv")
+local ItemDescriptor = require("libs.ItemDescriptor")
+local registry = require("libs.registry")
 local network = rednet -- TODO swap this for a custom impl
 
 local protocol = require("libs.clientlib").protocol
@@ -17,8 +19,9 @@ end
 
 local chestList = {}
 for i, v in ipairs({ peripheral.find("inventory") }) do
-    -- if v:match("minecraft:chest") then
-    chestList[#chestList + 1] = peripheral.getName(v)
+    local name = peripheral.getName(v)
+    -- if name:match("minecraft:chest") then
+    chestList[#chestList + 1] = name
     -- end
 end
 
@@ -98,7 +101,7 @@ local function main()
 
     parallel.waitForAny(
         function()
-            inv = acl.wrap(chestList, modem, tracker, function(s) log:log(s) end)
+            inv = acl.wrap(chestList, modem, tracker, function(s) log:log(s) end, registry)
         end,
         function()
             while true do
@@ -180,6 +183,7 @@ local function main()
     end)
     registerMessageHandler("removeInventory", function(msg)
         inv.reserve:removeInventory(msg.inv)
+        registry.mark_used(msg.inv, msg.label)
         return true
     end)
     registerMessageHandler("listRecipes", function(msg)
@@ -196,6 +200,36 @@ local function main()
     registerMessageHandler("listMachineTypes", function()
         return inv.craft.listMachineTypes()
     end)
+    registerMessageHandler("setMachineType", function(msg)
+        if msg.ptype then
+            inv.craft.newAlternativeMachineType(msg.mtype, msg.ptype, msg.slotmap, msg.outputmap)
+        else
+            inv.craft.newMachineType(msg.mtype, msg.slotmap, msg.outputmap)
+        end
+        return true
+    end)
+    registerMessageHandler("deleteMachineType", function(msg)
+        return inv.craft.deleteMachineType(msg.mtype)
+    end)
+    registerMessageHandler("listMachines", function(msg)
+        return inv.craft.listMachines(msg.mtype)
+    end)
+    registerMessageHandler("setMachine", function(msg)
+        return inv.craft.registerMachine(msg.mtype, msg.name, msg.invs)
+    end)
+    registerMessageHandler("deleteMachine", function(msg)
+        return inv.craft.deleteMachine(msg.name)
+    end)
+    registerMessageHandler("setRecipe", function(msg)
+        local items = {}
+        for i, v in ipairs(msg.items) do
+            items[i] = ItemDescriptor.unserialize(v)
+        end
+        return inv.craft.registerRecipe(msg.mtype, items, msg.recipe, msg.product, msg.produces)
+    end)
+    registerMessageHandler("listPeripherals", function(msg)
+        return registry.list()
+    end)
 
     ---@param msg table
     local function parseMessage(msg)
@@ -208,6 +242,7 @@ local function main()
 
     local inventoryDirty = false
     local taskDirty = false
+    local peripheralDirty = false
     local function broadcastChange()
         broadcast({
             type = "inventoryChange",
@@ -303,11 +338,34 @@ local function main()
         end
     end
 
+    local function peripheralUpdateThread()
+        while true do
+            sleep(sset.get(sset.peripheralBroadcastInterval))
+            if peripheralDirty then
+                peripheralDirty = false
+                broadcast({
+                    type = "peripheralUpdate",
+                    peripherals = registry.list()
+                })
+            end
+        end
+    end
+
+    local function registryThread()
+        while true do
+            if registry.on_event { os.pullEvent() } then
+                peripheralDirty = true
+            end
+        end
+    end
+
     local f = {
         receieveMessageThread,
         inventoryChangeThread,
         sset.checkForChangesThread,
-        sendTaskUpdateThread
+        sendTaskUpdateThread,
+        peripheralUpdateThread,
+        registryThread
     }
     local hostTask = stl.Task.new(f, "Host")
     inv.scheduler.queueTask(hostTask)

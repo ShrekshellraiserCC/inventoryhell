@@ -36,6 +36,14 @@ Dropdown {
     border_layer = px
 }
 
+.danger-button {
+    text_color = red
+}
+
+.warning-button {
+    text_color = yellow
+}
+
 Checkbox {
     fill_color:pressed = black
 }

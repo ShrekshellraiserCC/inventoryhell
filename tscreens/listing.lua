@@ -3,8 +3,7 @@ local ItemDescriptor = require "libs.ItemDescriptor"
 ---@class SSDTermPluginENV
 _ENV = _ENV
 
-local debug_ignore_listing_updates = true
-turtle = { craft = function() end }
+local debug_ignore_listing_updates = false
 
 local function item_select(self, item, idx)
     ---@cast self shrekui.Screen
@@ -63,11 +62,13 @@ local function search_change(self, value)
     apply_sort(value)
 end
 
+local has_init = false
 local function init(list, fragmap)
     if not debug_ignore_listing_updates then
-        listing_raw = capi.list()
+        listing_raw = list
     end
     apply_sort("")
+    has_init = true
 end
 
 local function submit_request(self)
@@ -101,6 +102,7 @@ _ENV.capi.subscribeTo({
             listing_raw = l
         end
         apply_sort(_ENV.search_bar)
+        has_init = true
     end,
     start = init
 })
@@ -263,7 +265,11 @@ _ENV.tapi.register_screen("listing", {
             }
         }
     }
-})
+}, function()
+    if not has_init then
+        init(capi.list())
+    end
+end)
 
 
 local request_screen_args = {
