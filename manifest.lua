@@ -34,9 +34,10 @@ return {
         "tasks.lua",
         "utils.lua"
     },
+    "crafter.lua",
     "host.lua",
-    "setup.lua",
-    "term.lua",
     "pstartup.lua",
+    "setup.lua",
     "startup.lua",
+    "term.lua",
 }
