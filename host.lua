@@ -6,6 +6,7 @@ local shrekui = require("libs.shrekui")
 local VirtualInv = require("libs.VirtualInv")
 local ItemDescriptor = require("libs.ItemDescriptor")
 local registry = require("libs.registry")
+local Coordinates = require("libs.Coordinates")
 local network = rednet -- TODO swap this for a custom impl
 
 local protocol = require("libs.clientlib").protocol
@@ -160,7 +161,7 @@ local function main()
         messageHandlers[type] = handle
     end
     registerMessageHandler("list", function(msg)
-        return inv.reserve:list()
+        return inv.list()
     end)
     registerMessageHandler("getFragMap", function(msg)
         return inv.reserve:getFragMap()
@@ -231,6 +232,25 @@ local function main()
         return registry.list()
     end)
 
+    local lastCraftID = 0
+    local craftRequestCache = {}
+    registerMessageHandler("requestCraft", function(msg)
+        local coord = Coordinates.ItemCoordinate(msg.name)
+        local task, required = inv.craft.craft(coord, msg.count)
+        if task then
+            lastCraftID = lastCraftID + 1
+            craftRequestCache[lastCraftID] = task
+            return lastCraftID, required
+        end
+    end)
+    registerMessageHandler("startCraft", function(msg)
+        local task = craftRequestCache[msg.cid]
+        if task then
+            task:queue()
+            return true
+        end
+    end)
+
     ---@param msg table
     local function parseMessage(msg)
         if type(msg) ~= "table" then return end
@@ -246,7 +266,7 @@ local function main()
     local function broadcastChange()
         broadcast({
             type = "inventoryChange",
-            list = inv.reserve:list(),
+            list = inv.list(),
             fragMap = inv.reserve:getFragMap()
         })
     end

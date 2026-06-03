@@ -5,16 +5,15 @@ local modem = peripheral.find("modem", function(name, wrapped)
     return not wrapped.isWireless()
 end) --[[@as WiredModem]]
 local sset = require "libs.sset"
-local ui = require "libs.ui"
 local clientlib = require "libs.clientlib"
+local shrekui = require "libs.shrekui"
 
 modem.open(7777)
 clientlib.open()
 turtle.select(16)
 
 local win = window.create(term.current(), 1, 1, term.getSize())
-ui.loadTheme(sset.get(sset.theme))
-ui.applyPallete(win)
+shrekui.load_global_theme(sset.get(sset.theme))
 local tw, th = term.getSize()
 local twin = window.create(win, 1, 2, tw, th - 2)
 term.redirect(twin)
@@ -152,10 +151,11 @@ local function render()
         sleep(delay)
         win.setVisible(false)
         win.clear()
-        ui.preset(twin, ui.presets.list)
         twin.clear()
-        ui.header(win, "SSD Crafter")
-        ui.footer(win, ("I have crafted %d things!"):format(counter))
+        win.setCursorPos(1, 1)
+        win.write("SSD Crafter")
+        win.setCursorPos(1, th)
+        win.write(("I have crafted %d things!"):format(counter))
         for i, v in ipairs(things) do
             tickThing(v, delay)
             renderThing(v)

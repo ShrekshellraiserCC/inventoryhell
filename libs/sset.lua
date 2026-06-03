@@ -265,7 +265,7 @@ sset.termListingCategories = registerSetting("term:listingCategories",
     "Preset categories for filtering items.", "table", {
         { "All",          "*" },
         { "Stored",       "#>0" },
-        { "Craftables",   "#=0" }, -- TODO implement craftable ItemDescriptor
+        { "Craftables",   "C" },
         { "Non-stacking", "!S" },
         { "Wood",         "(Tminecraft:logs|Tminecraft:planks)" },
     }, true, "both")

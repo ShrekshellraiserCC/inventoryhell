@@ -6,6 +6,7 @@ local ItemDescriptor = require("libs.ItemDescriptor")
 local coordLib       = require("libs.Coordinates")
 local shrexpect      = require("libs.shrexpect")
 local sset           = require("libs.sset")
+local Coordinates    = require("libs.Coordinates")
 
 local TaskLib        = require("libs.STL")
 
@@ -220,6 +221,24 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         return self
     end
 
+    ---@param from InventoryCompatible|InventoryProvider
+    ---@param slotA integer
+    ---@param slotB integer
+    ---@param limit integer?
+    function PullTask__index:fromRange(from, slotA, slotB, limit)
+        for i = slotA, slotB do
+            local f = function()
+                local r = self.reserve or invReserve
+                if type(from) == "function" then
+                    from = from()
+                end
+                return r:pullItems(from, i)
+            end
+            self.funcs[#self.funcs + 1] = f
+        end
+        return self
+    end
+
     ---@param r Reserve?
     ---@param name string?
     ---@return PullTask
@@ -398,7 +417,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         t.mtype = mtype
         t.output = { tonumber(out1), tonumber(out2) }
         t.ptype = ptype
-        t.id = id
+        t.id = tonumber(id)
         t.slots = {}
         local idx = finish + 1
         for i = 1, tonumber(slots) do
@@ -520,7 +539,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
             smachines[#smachines + 1] = sm
         end
         local stypes = {}
-        for _, mt in pairs(registeredMachineTypes) do
+        for n, mt in pairs(registeredMachineTypes) do
             local sm = serializeMachineType(mt)
             stypes[#stypes + 1] = sm
         end
@@ -546,13 +565,19 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         local stypes = readFromFile(machineTypesFN) --[[@as string[] ]]
         registeredMachineTypes = {}
         machineTypeLut = {}
-        lastMachineTypeID = 0
+        lastMachineTypeID = 1
         freeMachines = {}
         busyMachines = {}
         for i, v in ipairs(stypes) do
             local st = unserializeMachineType(v)
             lastMachineTypeID = math.max(lastMachineTypeID, st.id)
-            machineTypeLut[st.mtype] = st.id
+            machineTypeLut[st.id] = st.mtype
+            registeredMachineTypes[st.mtype] = {
+                id = st.id,
+                mtype = st.mtype,
+                output = st.output,
+                slots = st.slots
+            }
             if st.ptype ~= "" then
                 this.craft.newAlternativeMachineType(st.mtype, st.ptype, st.slots, st.output)
             else
@@ -593,6 +618,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         recipesByID[lastRecipeID] = r
         registeredRecipes[product] = registeredRecipes[product] or {}
         table.insert(registeredRecipes[product], r)
+        this.craft.saveRecipes()
         return lastRecipeID
     end
 
@@ -663,7 +689,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
     ---@return MachineCraftTask|TurtleCraftTask?
     ---@return table<string,integer> ItemDescriptor string, integer
     function this.craft.craft(item, count, itemCounts, alternative)
-        shrexpect({ "string", "number", "table<string,number>?", "number?" },
+        shrexpect({ "string|ItemDescriptor", "number", "table?", "number?" },
             { item, count, itemCounts, alternative })
         itemCounts = itemCounts or {}
         alternative = alternative or 1
@@ -725,7 +751,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
                 end
             end
         end }, "TurtleCraft"):addSubtask(pushIngredientsTask)
-        local pullProductTask = PullTask.new(r, "TurtlePull"):fromSlot(getTurtle, 16, count):addSubtask(craftingTask)
+        local pullProductTask = PullTask.new(r, "TurtlePull"):fromRange(getTurtle, 1, 16):addSubtask(craftingTask)
         local freeTask = TaskLib.Task.new({ function()
             freeTurtle(turt)
         end }, "TurtleFree"):addSubtask(pullProductTask)
@@ -825,7 +851,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
     ---@param round (fun(n:integer):integer)? Round to most efficient processing interval
     ---@param process MachineProcess? Function ran alongside item i/o functions
     function this.craft.newMachineType(mtype, slotmap, outputSlot, round, process)
-        shrexpect({ "string", "number[][]", "number[]", "function?", "function?" },
+        shrexpect({ "string", "table", "table", "function?", "function?" },
             { mtype, slotmap, outputSlot, round, process })
         local idx
         if registeredMachineTypes[mtype] then
@@ -845,6 +871,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         }
         busyMachines[mtype] = busyMachines[mtype] or {}
         freeMachines[mtype] = freeMachines[mtype] or {}
+        this.craft.saveRecipes()
     end
 
     ---Add a machine with the type mtype, which handles crafting via ptype recipes
@@ -874,6 +901,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
                 mtype = mtype
             }
         end
+        this.craft.saveRecipes()
     end
 
     ---Register a machine of a given type
@@ -891,6 +919,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         local ptype = registeredMachineTypes[mtype].ptype
         registeredMachines[name] = { invs = invs, mtype = mtype, ptype = ptype, name = name }
         freeMachines[ptype or mtype][name] = true
+        this.craft.saveRecipes()
     end
 
     ---@param name string
@@ -905,12 +934,14 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         end
         freeMachines[machine.mtype][name] = nil
         registeredMachines[name] = nil
+        this.craft.saveRecipes()
         return true
     end
 
     ---@param mtype string
     function this.craft.deleteMachineType(mtype)
         error("TODO") -- TODO
+        this.craft.saveRecipes()
     end
 
     ---@return RegisteredMachineType[]
@@ -1125,6 +1156,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         parser(json)
     end
 
+    this.craft.loadRecipes()
     local function loadPlugins(dir)
         local list = fs.list(dir)
         for i, v in ipairs(list) do
@@ -1135,7 +1167,6 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         end
     end
     loadPlugins(sset.getInstalledPath "cplugins")
-    this.craft.loadRecipes()
 
     ---@class RecipeInfo
     ---@field name string
@@ -1172,6 +1203,31 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
     --     end
     -- end
     -- debugParseJSONs()
+
+    function this.list()
+        local listing = this.reserve:list()
+        local lookup = {}
+        for i, v in ipairs(listing) do
+            local coord = Coordinates.ItemCoordinate(v.name, v.nbt)
+            lookup[coord] = v
+        end
+        for k, v in pairs(registeredRecipes) do
+            if lookup[k] then
+                lookup[k].craftable = true
+            else
+                local name, nbt = Coordinates.splitItemCoordinate(k)
+                listing[#listing + 1] = {
+                    name = name,
+                    nbt = nbt,
+                    count = 0,
+                    craftable = true,
+                    displayName = this.reserve:getDisplayName(name) or name,
+                    maxCount = 64
+                }
+            end
+        end
+        return listing
+    end
 
     ---Start this wrapper's coroutine
     ---Does not return, run this in parallel (or another coroutine manager)

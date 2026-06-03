@@ -62,6 +62,9 @@ local itemDescriptorTypes = {
     end,
     STACKABLE = function(self, item)
         return item.maxCount > 1
+    end,
+    CRAFTABLE = function(self, item)
+        return item.craftable
     end
 }
 
@@ -97,6 +100,8 @@ function ItemDescriptor__index:serialize()
         s = "#" .. self.op .. self.value
     elseif self.type == "STACKABLE" then
         s = "S"
+    elseif self.type == "CRAFTABLE" then
+        s = "C"
     else
         error(("Serialization not implemented for type %s!"):format(self.type))
     end
@@ -204,6 +209,10 @@ function Item.stackable()
     return setmetatable({ type = "STACKABLE" }, ItemDescriptor)
 end
 
+function Item.craftable()
+    return setmetatable({ type = "CRAFTABLE" }, ItemDescriptor)
+end
+
 ---@param s string
 ---@param c string
 local function splitByChar(s, c)
@@ -278,6 +287,8 @@ function Item.unserialize(s)
         return Item.hasCount(op, value)
     elseif ch == "S" then
         return Item.stackable()
+    elseif ch == "C" then
+        return Item.craftable()
     end
     error("Could not unserialize ItemDescriptor!")
 end

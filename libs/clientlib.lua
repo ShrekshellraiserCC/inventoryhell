@@ -176,6 +176,19 @@ function clientlib.removeInventory(inv, label)
     return sendAndRecieve({ type = "removeInventory", side = "client", inv = inv, label = label })
 end
 
+---@param name string
+---@param count integer
+---@return integer? cid
+---@return table<string,integer> required
+function clientlib.requestCraft(name, count)
+    return sendAndRecieve({ type = "requestCraft", name = name, count = count })
+end
+
+---@param cid integer
+function clientlib.startCraft(cid)
+    return sendAndRecieve({ type = "startCraft", cid = cid })
+end
+
 ---Push items into some inventory
 ---@param to string
 ---@param item ItemDescriptor

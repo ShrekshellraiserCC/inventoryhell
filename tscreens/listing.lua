@@ -4,13 +4,15 @@ local ItemDescriptor = require "libs.ItemDescriptor"
 _ENV = _ENV
 
 local debug_ignore_listing_updates = false
+local cenv = {}
 
 local function item_select(self, item, idx)
     ---@cast self shrekui.Screen
     _ENV.item = item
     _ENV.item.detail = nil
     _ENV.item.detail = textutils.serialize(item)
-    _ENV.tapi.open_screen("request")
+    _ENV.request_crafting = self:is_held(keys.leftCtrl)
+    _ENV.tapi.open_screen("listing:request")
 end
 
 
@@ -71,6 +73,63 @@ local function init(list, fragmap)
     has_init = true
 end
 
+_ENV.tapi.register_screen("listing:craft_overview", {
+    type = "Screen",
+    content = {
+        _ENV.tapi.back_button_template(),
+        _ENV.tapi.header_template("Craft Request"),
+        {
+            type = "Text",
+            y = 2,
+            h = 2,
+            text = "$request_info_string$"
+        },
+        {
+            type = "Table",
+            y = 4,
+            list = "$required_item_list$",
+            h = "h-5",
+            columns = {
+                { "name",  "w-10", "Name" },
+                { "count", nil,    "Count" }
+            }
+        },
+        {
+            type = "Button",
+            text = "Craft",
+            x = "w/2+1",
+            y = "h",
+            on_click = function(self)
+                _ENV.capi.startCraft(cenv.cid)
+                _ENV.tapi.back()
+            end
+        },
+        {
+            type = "Button",
+            text = "Cancel",
+            w = "w/2",
+            y = "h",
+            on_click = "$tapi.back$"
+        }
+    }
+}, nil, cenv)
+
+local function submit_craft_request(self, toCraft)
+    cenv.request_info_string = ("Requesting to craft %dx %s."):format(toCraft, _ENV.item.name)
+    local cid, required = capi.requestCraft(_ENV.item.name, toCraft)
+    if cid then
+        cenv.cid = cid
+        cenv.required_item_list = {}
+        for k, v in pairs(required) do
+            cenv.required_item_list[#cenv.required_item_list + 1] = {
+                name = k,
+                count = v
+            }
+        end
+        _ENV.tapi.open_screen("listing:craft_overview")
+    end
+end
+
 local function submit_request(self)
     local mul = 8
     if self:is_held(keys.leftShift) then
@@ -79,8 +138,17 @@ local function submit_request(self)
         mul = 1
     end
     local count = self.meta * mul
+    if _ENV.request_crafting and _ENV.item.craftable then
+        tapi.back()
+        submit_craft_request(self, count)
+        return
+    end
     tapi.request(_ENV.item, count)
     tapi.back()
+    if _ENV.item.count < count and _ENV.item.craftable and _ENV.craft_excess then
+        local toCraft = count - _ENV.item.count
+        submit_craft_request(self, toCraft)
+    end
 end
 
 local function submit_request_input(self)
@@ -134,7 +202,7 @@ local function use_id_change()
     apply_sort(_ENV.search_bar)
 end
 
-_ENV.tapi.register_screen("listing", {
+_ENV.tapi.register_screen("listing:listing", {
     type = "Screen",
     content = {
         _ENV.back_button_template(),
@@ -176,18 +244,20 @@ _ENV.tapi.register_screen("listing", {
         {
             type = "Frame",
             x = 1,
-            y = "h-5",
+            y = "h-4",
             w = "w-((turtle and turtle.craft) and 11 or 0)",
-            h = "5",
+            h = 4,
             hidden = "$not search_options$",
             z = 1.5,
             class = "submenu",
+            wz_offset = 2,
             content = {
                 {
                     type = "Checkbox",
                     text = "Enable ItemDescriptors",
                     pressed = "$enable_item_descriptors$",
                     w = "w-3",
+                    h = 1,
                     on_click = use_id_change
                 },
                 {
@@ -195,7 +265,14 @@ _ENV.tapi.register_screen("listing", {
                     text = "?",
                     on_click = "$tapi.open_screen('help_itemdescriptors')$",
                     x = "w-2",
-                    w = 3
+                    h = 1
+                },
+                {
+                    type = "Checkbox",
+                    text = "Craft excess",
+                    pressed = "$craft_excess$",
+                    y = 2,
+                    h = 1,
                 }
             }
         },
@@ -241,6 +318,7 @@ _ENV.tapi.register_screen("listing", {
             w = 11,
             h = 4,
             z = 2,
+            wz_offset = 2,
             class = "submenu",
             hidden = "$not craft_active$",
             content = {
@@ -310,6 +388,13 @@ local request_screen_args = {
             horizontal_alignment = "left",
             scrollbar = true
         },
+        {
+            type = "Text",
+            y = "h-2",
+            x = "w-13",
+            text = "==CRAFTING==",
+            hidden = "$not request_crafting$"
+        }
     }
 }
 
@@ -368,10 +453,7 @@ if sset.get(sset.requestScreenType) == "chord" then
                 key = "enter"
             }
         },
-        x = 2,
-        y = "h",
-        w = "w-1",
-        h = 1
+        y = "h"
     }
 else -- input type
     ---@type shrekui.FrameArgs
@@ -401,22 +483,11 @@ else -- input type
 end
 
 
-local request_screen_callback_content
--- Well this is a terrible catch-22 isn't it?
--- I need to set the request screen's input box back to a default value when it is opened
--- But to do that, I need a reference to the Input object, but I only get that after providing the callback.
--- Oh boy.
-local request_screen = _ENV.tapi.register_screen("request", request_screen_args, function()
-    if request_screen_callback_content then
-        request_screen_callback_content()
+_ENV.tapi.register_screen("listing:request", request_screen_args, function(self)
+    if sset.get(sset.requestScreenType) == "input" then
+        self:get_widget_by_id("item_count_input"):set_value(tostring(_ENV.item.maxCount))
     end
 end)
-if sset.get(sset.requestScreenType) == "input" then
-    local input = request_screen:get_widget_by_id("item_count_input") --[[@as shrekui.Input]]
-    request_screen_callback_content = function()
-        input:set_value(tostring(_ENV.item.maxCount))
-    end
-end
 
 
-_ENV.tapi.register_menu_button(1, "Listing", "listing")
+_ENV.tapi.register_menu_button(1, "Listing", "listing:listing")

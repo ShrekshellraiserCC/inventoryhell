@@ -176,7 +176,11 @@ local option_select = {
             return
         end
     end,
-    term = apply_term_settings
+    term = apply_term_settings,
+    crafter = function()
+        sset.set(sset.program, "crafter")
+        apply_startup_files()
+    end
 }
 
 local function option_button_selected(self)
@@ -194,6 +198,9 @@ local function add_option(label, meta)
 end
 add_option("Term", "term")
 add_option("Host", "host")
+if turtle and turtle.craft then
+    add_option("Crafter", "crafter")
+end
 
 if sset.get(sset.hid) == nil then
     option_select.host()
