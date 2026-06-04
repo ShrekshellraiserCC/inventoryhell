@@ -108,19 +108,13 @@ function api.set_overwrite(overwrite)
     always_overwrite = overwrite
 end
 
-local has_added_path = false
 function api.do_install(write)
     assert(type(manifest) == "table", "Invalid Manifest!")
     install_dir("", manifest, write)
-    if not has_added_path then
-        package.path = package.path ..
-        ";" .. fs.combine(inst_dir) .. "/?.lua" .. ";foo/?.lua"                                -- fails to load sset without this jank??
-        has_added_path = true
-    end
-    arg[0] = fs.combine(inst_dir, "libs") -- bad sset install directory detection bypass
-    local sset = require "libs.sset"
-    sset.set(sset.version, api.get_hash())
-    settings.set("shell.allow_disk_startup", true)
+    local path = fs.combine(inst_dir, ".version")
+    local f = assert(fs.open(path, "w"))
+    f.write(api.get_hash())
+    f.close()
 end
 
 api.get_hash = get_hash

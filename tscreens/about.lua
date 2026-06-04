@@ -2,7 +2,10 @@ local sset = require "libs.sset"
 local update = require "libs.update"
 _ENV = _ENV --[[@as SSDTermPluginENV]]
 
-local hash = _ENV.tapi.sset.get(_ENV.tapi.sset.version)
+
+local f = assert(fs.open(sset.getInstalledPath(".version"), "r"))
+local hash = f.readAll()
+f.close()
 local nhash = "NOTGOTTENYET"
 local about_str = ([[
 ShrekStorageDrive Preview

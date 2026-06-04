@@ -244,9 +244,6 @@ local function registerSetting(name, desc, dType, default, requiresReboot, side,
 end
 sset.register = registerSetting
 
-sset.version = registerSetting(
-    "sset:version", "The version of SSD last installed to this system. Do not modify.", "string", nil, true, "global"
-)
 sset.debug = registerSetting("sset:debug", "Debug mode.", "boolean", false, true, "both")
 sset.program = registerSetting(
     "boot:program", "What function does this computer serve?", "string", nil, true, "local",
