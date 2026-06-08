@@ -25,7 +25,8 @@ for i = 0, 14 do
 end
 local si = 1
 
-local localName = modem.getNameLocal()
+local localName = assert(modem.getNameLocal(),
+    "This crafter is not connected to this wired network, please right click the modem.")
 
 local counter = 0
 if fs.exists(".crafted") and sset.get(sset.craftKeep) then
