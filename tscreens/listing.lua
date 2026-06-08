@@ -114,7 +114,7 @@ _ENV.tapi.register_screen("listing:craft_overview", {
     }
 }, nil, cenv)
 
-local function submit_craft_request(self, toCraft)
+local function submit_craft_request(toCraft)
     cenv.request_info_string = ("Requesting to craft %dx %s."):format(toCraft, _ENV.item.name)
     local cid, required = capi.requestCraft(_ENV.item.name, toCraft)
     if cid then
@@ -130,7 +130,21 @@ local function submit_craft_request(self, toCraft)
     end
 end
 
-local function submit_request(self)
+local function submit_request(count)
+    if _ENV.request_crafting and _ENV.item.craftable then
+        tapi.back()
+        submit_craft_request(count)
+        return
+    end
+    tapi.request(_ENV.item, count)
+    tapi.back()
+    if _ENV.item.count < count and _ENV.item.craftable and _ENV.craft_excess then
+        local toCraft = count - _ENV.item.count
+        submit_craft_request(toCraft)
+    end
+end
+
+local function submit_request_chord(self)
     local mul = 8
     if self:is_held(keys.leftShift) then
         mul = 64
@@ -138,17 +152,7 @@ local function submit_request(self)
         mul = 1
     end
     local count = self.meta * mul
-    if _ENV.request_crafting and _ENV.item.craftable then
-        tapi.back()
-        submit_craft_request(self, count)
-        return
-    end
-    tapi.request(_ENV.item, count)
-    tapi.back()
-    if _ENV.item.count < count and _ENV.item.craftable and _ENV.craft_excess then
-        local toCraft = count - _ENV.item.count
-        submit_craft_request(self, toCraft)
-    end
+    submit_request(count)
 end
 
 local function submit_request_input(self)
@@ -157,8 +161,7 @@ local function submit_request_input(self)
     })
     local ok, v = pcall(f)
     if ok and type(v) == "number" then
-        tapi.request(_ENV.item, math.floor(v))
-        tapi.back()
+        submit_request(math.floor(v))
     end
 end
 
@@ -250,7 +253,7 @@ _ENV.tapi.register_screen("listing:listing", {
             hidden = "$not search_options$",
             z = 1.5,
             class = "submenu",
-            wz_offset = 2,
+            lz_offset = 2,
             content = {
                 {
                     type = "Checkbox",
@@ -318,7 +321,7 @@ _ENV.tapi.register_screen("listing:listing", {
             w = 11,
             h = 4,
             z = 2,
-            wz_offset = 2,
+            lz_offset = 2,
             class = "submenu",
             hidden = "$not craft_active$",
             content = {
@@ -410,7 +413,7 @@ if sset.get(sset.requestScreenType) == "chord" then
                 text =
                 "$self:is_held(keys.leftShift) and '[A  64]' or self:is_held(keys.leftCtrl) and '[A   1]' or '[A   8]'$",
                 meta = 1,
-                on_click = submit_request,
+                on_click = submit_request_chord,
                 key = "a"
             },
             {
@@ -420,7 +423,7 @@ if sset.get(sset.requestScreenType) == "chord" then
                 text =
                 "$self:is_held(keys.leftShift) and '[S 128]' or self:is_held(keys.leftCtrl) and '[S   2]' or '[S  16]'$",
                 meta = 2,
-                on_click = submit_request,
+                on_click = submit_request_chord,
                 key = "s"
             },
             {
@@ -430,7 +433,7 @@ if sset.get(sset.requestScreenType) == "chord" then
                 text =
                 "$self:is_held(keys.leftShift) and '[D 256]' or self:is_held(keys.leftCtrl) and '[D   4]' or '[D  32]'$",
                 meta = 4,
-                on_click = submit_request,
+                on_click = submit_request_chord,
                 key = "d"
             },
             {
@@ -440,7 +443,7 @@ if sset.get(sset.requestScreenType) == "chord" then
                 text =
                 "$self:is_held(keys.leftShift) and '[F 512]' or self:is_held(keys.leftCtrl) and '[F   8]' or '[F  64]'$",
                 meta = 8,
-                on_click = submit_request,
+                on_click = submit_request_chord,
                 key = "f"
             },
             {
@@ -449,7 +452,7 @@ if sset.get(sset.requestScreenType) == "chord" then
                 w = 7,
                 text = "[Enter]",
                 meta = 8,
-                on_click = submit_request,
+                on_click = submit_request_chord,
                 key = "enter"
             }
         },
