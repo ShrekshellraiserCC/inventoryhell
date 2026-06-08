@@ -96,6 +96,7 @@ end
 
 ---@return ...
 local function sendAndRecieve(msg)
+    assert(msg.id == nil, "Cannot send field id in message.")
     local id = getUid()
     msg.id = id
     log("Sent request %d type=%s", id, msg.type)
@@ -314,14 +315,57 @@ end
 ---@param recipe integer[]|pair[]
 ---@param product ItemCoordinate
 ---@param produces integer
-function clientlib.setRecipe(mtype, items, recipe, product, produces)
+function clientlib.newRecipe(mtype, items, recipe, product, produces)
     return sendAndRecieve({
-        type = "setRecipe",
+        type = "newRecipe",
         mtype = mtype,
         items = items,
         recipe = recipe,
         product = product,
         produces = produces
+    })
+end
+
+---@param id integer
+---@param mtype string
+---@param items string[] ItemDescriptors
+---@param recipe integer[]|pair[]
+---@param product ItemCoordinate
+---@param produces integer
+function clientlib.editRecipe(id, mtype, items, recipe, product, produces)
+    return sendAndRecieve({
+        type = "editRecipe",
+        rid = id,
+        mtype = mtype,
+        items = items,
+        recipe = recipe,
+        product = product,
+        produces = produces
+    })
+end
+
+---@param id integer
+function clientlib.deleteRecipe(id)
+    return sendAndRecieve({
+        type = "deleteRecipe",
+        rid = id
+    })
+end
+
+---@return ssd.host.RecipeInfo?
+function clientlib.getRecipeInfo(id)
+    return sendAndRecieve({
+        type = "getRecipeInfo",
+        rid = id
+    })
+end
+
+---@param mtype string
+---@return RegisteredMachineType?
+function clientlib.getMachineTypeInfo(mtype)
+    return sendAndRecieve({
+        type = "getMachineTypeInfo",
+        mtype = mtype
     })
 end
 

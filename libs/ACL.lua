@@ -29,6 +29,7 @@ local function clone(t)
     end
     return t
 end
+lib.clone = clone
 
 ---Wrap a list of inventories
 ---@param invList string[]
@@ -351,7 +352,11 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
             s[#s + 1] = cacheID(v)
             s[#s + 1] = ","
         end
-        s[#s] = ";" -- remove trailing comma
+        if s[#s] == "," then
+            s[#s] = ";" -- remove trailing comma
+        elseif s[#s] == "=" then
+            s[#s + 1] = ";"
+        end
         local recipeSize = 0
         for i in pairs(r.recipe) do
             recipeSize = math.max(recipeSize, i)
@@ -460,7 +465,6 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         end
         local productID, rtype, produces, itemCount = s:match(firstPattern)
         local idx = finish + 1
-        lastRecipeID = lastRecipeID + 1
         local r = {
             items = {},
             produces = tonumber(produces),
@@ -547,6 +551,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         saveFile(machinesFN, smachines)
         saveFile(machineTypesFN, stypes)
         saveFile(itemCacheFN, IDCacheList)
+        logger("Saved recipes.")
     end
     this.craft.saveRecipes = saveRecipes
 
@@ -590,6 +595,8 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
             this.craft.registerMachine(m.mtype, m.name, m.invs)
         end
         registeredRecipes = {}
+        recipesByID = {}
+        lastRecipeID = 0
         for i, v in ipairs(sreps) do
             local r = unserializeRecipe(v)
             this.craft.registerRecipe(r.type, r.items, r.recipe, r.product, r.produces)
@@ -603,23 +610,60 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
     ---@param recipe integer[]|pair[]
     ---@param product ItemCoordinate
     ---@param produces integer
+    ---@param _id integer?
     ---@return integer recipeID
-    function this.craft.registerRecipe(mtype, items, recipe, product, produces)
-        lastRecipeID = lastRecipeID + 1
+    function this.craft.registerRecipe(mtype, items, recipe, product, produces, _id)
+        local id
+        if _id then
+            id = _id
+        else
+            lastRecipeID = lastRecipeID + 1
+            id = lastRecipeID
+        end
         ---@type RegisteredRecipe
         local r = {
-            id = lastRecipeID,
+            id = id,
             items = items,
             type = mtype,
             recipe = recipe,
             product = product,
             produces = produces,
         }
-        recipesByID[lastRecipeID] = r
+        recipesByID[id] = r
         registeredRecipes[product] = registeredRecipes[product] or {}
-        table.insert(registeredRecipes[product], r)
-        this.craft.saveRecipes()
-        return lastRecipeID
+        if not _id then
+            table.insert(registeredRecipes[product], r)
+        end
+        return id
+    end
+
+    ---@param id integer
+    function this.craft.deleteRecipe(id)
+        local recipe = recipesByID[id]
+        if not recipe then return false end
+        recipesByID[id] = nil
+        local recipes = registeredRecipes[recipe.product]
+        for i, v in ipairs(recipes) do
+            if v == recipe then
+                table.remove(recipes, i)
+                if #recipes == 0 then
+                    registeredRecipes[recipe.product] = nil
+                end
+                return true
+            end
+        end
+    end
+
+    ---@param id integer
+    ---@return RegisteredRecipe?
+    function this.craft.getRecipeInfo(id)
+        return recipesByID[id]
+    end
+
+    ---@param mtype string
+    ---@return RegisteredMachineType?
+    function this.craft.getMachineTypeInfo(mtype)
+        return registeredMachineTypes[mtype]
     end
 
     ---@param recipe RegisteredRecipe
@@ -871,7 +915,6 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         }
         busyMachines[mtype] = busyMachines[mtype] or {}
         freeMachines[mtype] = freeMachines[mtype] or {}
-        this.craft.saveRecipes()
     end
 
     ---Add a machine with the type mtype, which handles crafting via ptype recipes
@@ -901,7 +944,6 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
                 mtype = mtype
             }
         end
-        this.craft.saveRecipes()
     end
 
     ---Register a machine of a given type
@@ -919,7 +961,6 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         local ptype = registeredMachineTypes[mtype].ptype
         registeredMachines[name] = { invs = invs, mtype = mtype, ptype = ptype, name = name }
         freeMachines[ptype or mtype][name] = true
-        this.craft.saveRecipes()
     end
 
     ---@param name string
@@ -934,14 +975,12 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         end
         freeMachines[machine.mtype][name] = nil
         registeredMachines[name] = nil
-        this.craft.saveRecipes()
         return true
     end
 
     ---@param mtype string
     function this.craft.deleteMachineType(mtype)
         error("TODO") -- TODO
-        this.craft.saveRecipes()
     end
 
     ---@return RegisteredMachineType[]
@@ -1173,6 +1212,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
     ---@field displayName string?
     ---@field coord ItemCoordinate
     ---@field type string
+    ---@field id integer
 
     ---@return RecipeInfo[]
     function this.craft.listRecipes()
@@ -1186,7 +1226,8 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
                     name = name,
                     coord = i,
                     type = recipe.type,
-                    displayName = displayName
+                    displayName = displayName,
+                    id = recipe.id
                 }
             end
         end

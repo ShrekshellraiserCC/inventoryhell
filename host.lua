@@ -207,26 +207,59 @@ local function main()
         else
             inv.craft.newMachineType(msg.mtype, msg.slotmap, msg.outputmap)
         end
+        inv.craft.saveRecipes()
         return true
     end)
     registerMessageHandler("deleteMachineType", function(msg)
-        return inv.craft.deleteMachineType(msg.mtype)
+        inv.craft.deleteMachineType(msg.mtype)
+        inv.craft.saveRecipes()
     end)
     registerMessageHandler("listMachines", function(msg)
         return inv.craft.listMachines(msg.mtype)
     end)
     registerMessageHandler("setMachine", function(msg)
-        return inv.craft.registerMachine(msg.mtype, msg.name, msg.invs)
+        inv.craft.registerMachine(msg.mtype, msg.name, msg.invs)
+        inv.craft.saveRecipes()
     end)
     registerMessageHandler("deleteMachine", function(msg)
-        return inv.craft.deleteMachine(msg.name)
+        inv.craft.deleteMachine(msg.name)
+        inv.craft.saveRecipes()
     end)
-    registerMessageHandler("setRecipe", function(msg)
+    registerMessageHandler("newRecipe", function(msg)
         local items = {}
         for i, v in ipairs(msg.items) do
             items[i] = ItemDescriptor.unserialize(v)
         end
-        return inv.craft.registerRecipe(msg.mtype, items, msg.recipe, msg.product, msg.produces)
+        local rid = inv.craft.registerRecipe(msg.mtype, items, msg.recipe, msg.product, msg.produces)
+        inv.craft.saveRecipes()
+        return rid
+    end)
+    registerMessageHandler("editRecipe", function(msg)
+        local items = {}
+        for i, v in ipairs(msg.items) do
+            items[i] = ItemDescriptor.unserialize(v)
+        end
+        local rid = inv.craft.registerRecipe(msg.mtype, items, msg.recipe, msg.product, msg.produces, msg.rid)
+        inv.craft.saveRecipes()
+        return rid
+    end)
+    registerMessageHandler("deleteRecipe", function(msg)
+        inv.craft.deleteRecipe(msg.rid)
+        inv.craft.saveRecipes()
+    end)
+    ---@class ssd.host.RecipeInfo : RegisteredRecipe
+    ---@field items string[]
+    registerMessageHandler("getRecipeInfo", function(msg)
+        local inforaw = inv.craft.getRecipeInfo(msg.rid)
+        if not inforaw then return end
+        local info = acl.clone(inforaw) --[[@as ssd.host.RecipeInfo]]
+        for i, v in ipairs(inforaw.items) do
+            info.items[i] = v:serialize()
+        end
+        return info
+    end)
+    registerMessageHandler("getMachineTypeInfo", function(msg)
+        return inv.craft.getMachineTypeInfo(msg.mtype)
     end)
     registerMessageHandler("listPeripherals", function(msg)
         return registry.list()

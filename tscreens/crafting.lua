@@ -349,6 +349,7 @@ local function save_new_machine_type()
     end
     _ENV.capi.setMachineType(name, slotmap, { 1, 1 }, pname)
     _ENV.tapi.back()
+    cenv.machine_types_list = _ENV.capi.listMachineTypes()
 end
 _ENV.tapi.register_screen("crafting:new_machine_type", {
     type = "Screen",
@@ -714,6 +715,7 @@ _ENV.tapi.register_screen("crafting:new_machine", {
                 end
                 _ENV.capi.setMachine(cenv.selected_machine_mtype, name, invs)
                 _ENV.tapi.back()
+                cenv.machine_list = _ENV.capi.listMachines(cenv.selected_machine_mtype)
             end
         }
     }
@@ -737,9 +739,14 @@ _ENV.tapi.register_screen("crafting:recipes", {
             type = "Table",
             y = 2,
             h = "h-2",
-            columns = { { "displayName", "w-8", "Name" }, { "type", nil, "Type" } },
+            columns = { { "id", 4, "RID" }, { "type", 8, "Type" }, { "displayName", nil, "Name" } },
             list = "$recipes$",
-            id = "recipe-list"
+            id = "recipe-list",
+            on_select = function(self, v)
+                ---@type ssd.host.RecipeInfo
+                cenv.editing_recipe = capi.getRecipeInfo(v.id)
+                _ENV.tapi.open_screen("crafting:edit_recipe")
+            end
         },
         {
             type = "Button",
@@ -748,10 +755,16 @@ _ENV.tapi.register_screen("crafting:recipes", {
             text = "Delete",
             class = "danger-button",
             on_click = function(self)
+                ---@type RecipeInfo?
+                local hovered = self:get_root():get_widget_by_id("recipe-list"):get_highlighted()
+                if not hovered then return end
+                local id = hovered.id
                 _ENV.utils.confirm_screen("Delete Recipe?",
-                    ("Are you sure you want to delete the recipe for %s? This cannot be undone."):format("TODO"),
+                    ("Are you sure you want to delete the recipe for %s (id %d)? This cannot be undone."):format(
+                        hovered.name, id),
                     function()
-
+                        capi.deleteRecipe(id)
+                        cenv.recipes = capi.listRecipes()
                     end)
             end
         },
@@ -819,7 +832,7 @@ local function add_grid_recipe_from_turtle_inv(listing, output)
 
     local product = Coordinates.ItemCoordinate(output.name, output.nbt)
     local produces = output.count
-    _ENV.capi.setRecipe("grid", items, recipe, product, produces)
+    _ENV.capi.newRecipe("grid", items, recipe, product, produces)
 end
 
 _ENV.tapi.register_screen("crafting:new_recipe_grid", {
@@ -871,6 +884,7 @@ _ENV.tapi.register_screen("crafting:new_recipe_grid", {
                 add_grid_recipe_from_turtle_inv(listing, info)
                 tapi.back()
                 tapi.back() -- go back to crafting:list_recipes
+                cenv.recipes = capi.listRecipes()
             end
         }
     }
@@ -882,18 +896,367 @@ _ENV.tapi.register_screen("crafting:new_recipe", {
     type = "Screen",
     content = {
         _ENV.tapi.back_button_template(),
-        _ENV.tapi.header_template("Recipe"),
+        _ENV.tapi.header_template("New Recipe"),
+        {
+            type = "Text",
+            y = 2,
+            text = "What item does this recipe produce?",
+            h = 3
+        },
+        {
+            type = "Frame",
+            y = 5,
+            h = 1,
+            padding = { 1, 0 },
+            content = {
+                {
+                    type = "Input",
+                    w = "w-1",
+                    id = "recipe-product-input",
+                    value = "$recipe_product$"
+                },
+                {
+                    type = "Button",
+                    x = "w",
+                    text = "+",
+                    on_click = function(self)
+                        local input = self:get_root():get_widget_by_id("recipe-product-input")
+                        _ENV.utils.item_picker(function(ID)
+                            local coord = ItemDescriptor.unserialize(ID):toCoord()
+                            if coord then
+                                local name, nbt = Coordinates.splitItemCoordinate(coord)
+                                input:set_value(name)
+                            end
+                        end)
+                    end
+                }
+            }
+        },
+        {
+            type = "Button",
+            y = "h",
+            w = "w/2",
+            text = "Cancel",
+            on_click = tapi.back
+        },
+        {
+            type = "Button",
+            y = "h",
+            x = "w/2+1",
+            text = "Next",
+            on_click = function(self)
+                local r = {
+                    id = -1,
+                    items = {},
+                    produces = 1,
+                    product = Coordinates.ItemCoordinate(cenv.recipe_product),
+                    recipe = {},
+                    type = cenv.recipe_mtype
+                }
+                cenv.editing_recipe = r
+                local id = capi.newRecipe(r.type, r.items, r.recipe, r.product, r.produces)
+                r.id = id
+                tapi.back()
+                tapi.open_screen("crafting:edit_recipe")
+            end
+        }
     }
-}, nil, cenv)
+}, function(self)
+    cenv.recipe_product = ""
+    self:get_root():get_widget_by_id("recipe-product-input"):set_value("")
+end, cenv)
+
+local function refresh_editing_recipe()
+    cenv.editing_recipe_items = {}
+    cenv.recipe_item_list = {}
+    for i, v in ipairs(cenv.editing_recipe.items) do
+        cenv.editing_recipe_items[i] = { v, n = i }
+        cenv.recipe_item_list[i] = v
+    end
+    local machine_type = capi.getMachineTypeInfo(cenv.editing_recipe.type)
+    if not machine_type then
+        error("Trying to edit recipe for invalid machine type.")
+    end
+    cenv.editing_recipe_recipe = {}
+    local recipe = cenv.editing_recipe
+    local n = #machine_type.slots
+    if cenv.editing_recipe.type == "grid" then
+        n = 9
+    end
+    for i = 1, n do
+        local index = recipe.recipe[i]
+        local count = 1
+        if type(index) == "table" then count = index[2] end
+        if type(index) == "table" then index = index[1] end
+        cenv.editing_recipe_recipe[i] = {
+            index = index or "-",
+            item = recipe.items[index] or "",
+            count = index and count or "",
+            slot = i
+        }
+    end
+end
+
+local function remove_recipe_item(index)
+    for i, v in pairs(cenv.editing_recipe.recipe) do
+        local n = v
+        if type(v) == "table" then
+            n = v[1]
+        end
+        if n == index then
+            cenv.editing_recipe.recipe[i] = nil
+        elseif n > index then
+            if type(v) == "table" then
+                v[1] = n - 1
+            else
+                cenv.editing_recipe.recipe[i] = n - 1
+            end
+        end
+    end
+    table.remove(cenv.editing_recipe.items, index)
+    refresh_editing_recipe()
+end
 
 _ENV.tapi.register_screen("crafting:edit_recipe", {
     type = "Screen",
     content = {
         _ENV.tapi.back_button_template(),
-        _ENV.tapi.header_template("Recipe"),
+        _ENV.tapi.header_template("Edit Recipe"),
+        {
+            type = "Text",
+            h = 1,
+            y = 2,
+            text =
+            "$('RID: %d. Produces %d of %s.'):format(editing_recipe.id, editing_recipe.produces, editing_recipe.product)$"
+        },
+        {
+            type = "Text",
+            y = 3,
+            h = 1,
+            w = "w/2",
+            horizontal_alignment = "right",
+            text = "Produces |"
+        },
+        {
+            type = "Input",
+            y = 3,
+            h = 1,
+            x = "w/2+1",
+            id = "produces-input",
+            on_change = function(self, v)
+                local n = tonumber(v)
+                if n then
+                    cenv.editing_recipe.produces = n
+                    refresh_editing_recipe()
+                end
+            end
+        },
+        {
+            type = "Frame",
+            y = 4,
+            h = "h-4",
+            w = "w/2",
+            content = {
+                {
+                    type = "Text",
+                    h = 1,
+                    text = "Items"
+                },
+                {
+                    type = "Input",
+                    h = 1,
+                    y = 2,
+                    w = "w-1",
+                    id = "itemdescriptor-input",
+                    on_change = function(self, v)
+                        local ok, id = pcall(ItemDescriptor.unserialize, v)
+                        if not (ok and id) then return end
+                        if cenv.selected_item_slot then
+                            cenv.editing_recipe.items[cenv.selected_item_slot] = v
+                            refresh_editing_recipe()
+                        end
+                    end
+                },
+                {
+                    type = "Button",
+                    x = "w",
+                    h = 1,
+                    y = 2,
+                    text = "+",
+                    on_click = function(self)
+                        local item_input = self:get_root():get_widget_by_id("itemdescriptor-input")
+                        utils.item_picker(function(ID)
+                            item_input:set_value(ID)
+                        end)
+                    end
+                },
+                {
+                    type = "Table",
+                    list = "$editing_recipe_items$",
+                    id = "recipe-items",
+                    columns = {
+                        { "n", 3,   "n" },
+                        { 1,   nil, "Item" }
+                    },
+                    y = 3,
+                    h = "h-3",
+                    on_select = function(self, v, i)
+                        cenv.selected_item_slot = i
+                        self:get_root():get_widget_by_id("itemdescriptor-input"):set_value(v[1])
+                    end,
+                    allow_sort = false,
+                    instant_select = true
+                },
+                {
+                    type = "Button",
+                    text = "-",
+                    y = "h",
+                    w = "w/2",
+                    on_click = function(self)
+                        if cenv.selected_item_slot then
+                            remove_recipe_item(cenv.selected_item_slot)
+                            cenv.selected_item_slot = nil
+                        end
+                    end
+                },
+                {
+                    type = "Button",
+                    text = "+",
+                    y = "h",
+                    x = "w/2+1",
+                    on_click = function(self)
+                        cenv.editing_recipe.items[#cenv.editing_recipe.items + 1] = "*"
+                        refresh_editing_recipe()
+                    end
+                }
+            }
+        },
+        {
+            type = "Frame",
+            y = 4,
+            h = "h-4",
+            x = "w/2+1",
+            content = {
+                {
+                    type = "Text",
+                    h = 1,
+                    text = "Recipe"
+                },
+                {
+                    type = "Dropdown",
+                    y = 2,
+                    h = 1,
+                    w = "w-5",
+                    options = "$recipe_item_list$",
+                    id = "recipe-item-dropdown",
+                    on_change = function(self, v, idx)
+                        local h = self:get_root():get_widget_by_id("recipe-slot-list"):get_highlighted()
+                        if h then
+                            local slot = h.slot
+                            local recipe = cenv.editing_recipe
+                            local item = recipe.recipe[slot]
+                            if type(item) == "table" then
+                                item[1] = idx
+                            else
+                                recipe.recipe[slot] = idx
+                            end
+                            refresh_editing_recipe()
+                        end
+                    end
+                },
+                {
+                    type = "Text",
+                    y = 2,
+                    w = 1,
+                    h = 1,
+                    x = "w-4",
+                    text = "*"
+                },
+                {
+                    type = "Input",
+                    y = 2,
+                    w = 3,
+                    h = 1,
+                    x = "w-3",
+                    id = "recipe-item-count",
+                    on_change = function(self, v)
+                        local count = tonumber(v)
+                        local h = self:get_root():get_widget_by_id("recipe-slot-list"):get_highlighted()
+                        if count and h then
+                            local slot = h.slot
+                            local recipe = cenv.editing_recipe
+                            local item = recipe.recipe[slot]
+                            if type(item) == "table" then
+                                item[2] = count
+                            else
+                                recipe.recipe[slot] = { item, count }
+                            end
+                            refresh_editing_recipe()
+                        end
+                    end
+                },
+                {
+                    type = "Button",
+                    y = 2,
+                    x = "w",
+                    h = 1,
+                    text = "x",
+                    class = "danger-button",
+                    on_click = function(self)
+                        self:get_root():get_widget_by_id("recipe-item-dropdown"):set_value("")
+                        self:get_root():get_widget_by_id("recipe-item-count"):set_value("")
+                        local h = self:get_root():get_widget_by_id("recipe-slot-list"):get_highlighted()
+                        if h then
+                            local slot = h.slot
+                            local recipe = cenv.editing_recipe
+                            recipe.recipe[slot] = nil
+                            refresh_editing_recipe()
+                        end
+                    end
+                },
+                {
+                    type = "Table",
+                    y = 3,
+                    columns = {
+                        { "slot",  3,   "s" },
+                        { "index", 3,   "n" },
+                        { "count", 3,   "#" },
+                        { "item",  nil, "Item" }
+                    },
+                    allow_sort = false,
+                    instant_select = true,
+                    list = "$editing_recipe_recipe$",
+                    id = "recipe-slot-list",
+                    on_select = function(self, v)
+                        self:get_root():get_widget_by_id("recipe-item-dropdown"):set_value(v.item)
+                        self:get_root():get_widget_by_id("recipe-item-count"):set_value(tostring(v.count or 1))
+                    end
+                }
+            }
+        },
+        {
+            type = "Button",
+            y = "h",
+            w = "w/2",
+            text = "Cancel",
+            on_click = tapi.back
+        },
+        {
+            type = "Button",
+            y = "h",
+            x = "w/2+1",
+            text = "Save",
+            on_click = function(self)
+                local recipe = cenv.editing_recipe
+                capi.editRecipe(recipe.id, recipe.type, recipe.items, recipe.recipe, recipe.product, recipe.produces)
+                tapi.back() -- recipe list
+                tapi.back() -- Machines/Recipes screen
+            end
+        }
     }
-}, function()
-
+}, function(self)
+    refresh_editing_recipe()
+    self:get_widget_by_id("produces-input"):set_value(cenv.editing_recipe.produces)
 end, cenv)
 
 _ENV.tapi.register_screen("crafting:menu", {

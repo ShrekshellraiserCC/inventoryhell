@@ -353,7 +353,7 @@ local menu_layout = {
             h = 1,
             y = "h",
             z = 3,
-            wz_offset = 1
+            lz_offset = 1
         },
         {
             type = "Text",
@@ -369,7 +369,7 @@ local menu_layout = {
             w = "w",
             h = 11,
             z = 2,
-            wz_offset = 2,
+            lz_offset = 2,
             class = "submenu",
             hidden = "$not power_menu_open$",
             content = {
@@ -457,10 +457,6 @@ function tapi.back()
     local top = table.remove(screen_stack)
     if top then
         current_screen = screens[top]
-        local name = current_screen.meta
-        if screenCallbacks[name] then
-            screenCallbacks[name](current_screen)
-        end
     end
 end
 
