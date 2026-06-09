@@ -1,7 +1,7 @@
 return {
     libs = {
         shrekui = {
-            ["init.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/ui/init.lua"
+            ["init.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekui/init.lua"
         },
         "ACL.lua",
         "clientlib.lua",
