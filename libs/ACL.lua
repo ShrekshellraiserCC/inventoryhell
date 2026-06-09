@@ -377,6 +377,9 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
             end
             s[#s + 1] = ","
         end
+        if recipeSize == 0 then
+            s[#s + 1] = ";"
+        end
         s[#s] = ";"
         return table.concat(s, "")
     end
