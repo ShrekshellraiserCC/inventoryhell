@@ -624,14 +624,13 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
             id = lastRecipeID
         end
         ---@type RegisteredRecipe
-        local r = {
-            id = id,
-            items = items,
-            type = mtype,
-            recipe = recipe,
-            product = product,
-            produces = produces,
-        }
+        local r = recipesByID[id] or {}
+        r.id = id
+        r.type = mtype
+        r.items = items
+        r.recipe = recipe
+        r.product = product
+        r.produces = produces
         recipesByID[id] = r
         registeredRecipes[product] = registeredRecipes[product] or {}
         if not _id then

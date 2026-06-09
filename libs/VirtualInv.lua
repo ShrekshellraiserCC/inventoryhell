@@ -569,6 +569,10 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
         return 0, ""
     end
     local info = invGetItemDetail(emptyInv, emptySlot)
+    if info == nil then
+        -- TODO handle corruptions.
+        error(("Scanning coord %s resulted in nothing after moving %d items."):format(emptyCoord, moved))
+    end
     local itemCoord = coordLib.ItemCoordinate(info.name, info.nbt)
     detailedDataCache[itemCoord] = detailedDataCache[itemCoord] or clone(info)
     if moved == info.maxCount then
