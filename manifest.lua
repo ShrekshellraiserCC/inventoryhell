@@ -12,6 +12,7 @@ return {
         ["shrekdraw.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekdraw.lua",
         ["shrektheme.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrektheme.lua",
         "shrexpect.lua",
+        "slogger.lua",
         "sset.lua",
         "STL.lua",
         ["update.lua"] = "https://raw.githubusercontent.com/ShrekshellraiserCC/inventoryhell/refs/heads/main/install.lua",

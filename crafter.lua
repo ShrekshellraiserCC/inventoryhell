@@ -8,6 +8,8 @@ local sset = require "libs.sset"
 local clientlib = require "libs.clientlib"
 local shrekui = require "libs.shrekui"
 
+local turtlePort = 7777
+modem.open(turtlePort)
 clientlib.open()
 turtle.select(16)
 

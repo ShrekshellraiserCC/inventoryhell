@@ -1,18 +1,19 @@
-local acl = require("libs.ACL")
-local ID = require("libs.ItemDescriptor")
-local stl = require("libs.STL")
-local sset = require("libs.sset")
-local shrekui = require("libs.shrekui")
-local VirtualInv = require("libs.VirtualInv")
+local acl            = require("libs.ACL")
+local ID             = require("libs.ItemDescriptor")
+local stl            = require("libs.STL")
+local sset           = require("libs.sset")
+local shrekui        = require("libs.shrekui")
+local VirtualInv     = require("libs.VirtualInv")
 local ItemDescriptor = require("libs.ItemDescriptor")
-local registry = require("libs.registry")
-local Coordinates = require("libs.Coordinates")
-local network = rednet -- TODO swap this for a custom impl
+local registry       = require("libs.registry")
+local Coordinates    = require("libs.Coordinates")
+local slogger        = require("libs.slogger")
+local network        = rednet -- TODO swap this for a custom impl
 
-local protocol = require("libs.clientlib").protocol
-local hostname = "HOST_TEST"
+local protocol       = require("libs.clientlib").protocol
+local hostname       = "HOST_TEST"
 
-local id = os.getComputerID()
+local id             = os.getComputerID()
 local function broadcast(m)
     network.broadcast(m, protocol) -- oh god, implement a loopback in the custom impl!!
     network.send(id, m, protocol)
@@ -86,7 +87,11 @@ local function progressBar(w, p)
     return s
 end
 
-local function main()
+local logProvider = slogger.new("HOST", "hostlog.txt")
+logProvider.addTarget(function(s)
+    log:log(s)
+end)
+local function main(standalone)
     -- Central host process for the storage system
     ---@alias Modem ccTweaked.peripherals.Modem
     local modem = peripheral.find("modem", function(name, wrapped)
@@ -100,9 +105,9 @@ local function main()
     ---@type ACL
     local inv
 
-    parallel.waitForAny(
+    local funcs = {
         function()
-            inv = acl.wrap(chestList, modem, tracker, function(s) log:log(s) end, registry)
+            inv = acl.wrap(chestList, modem, tracker, logProvider, registry)
         end,
         function()
             while true do
@@ -147,8 +152,13 @@ local function main()
                 })
                 sleep(0)
             end
-        end
-    )
+        end }
+    if standalone then
+        table.insert(funcs, 1, function()
+            screen:run(win)
+        end)
+    end
+    parallel.waitForAny(table.unpack(funcs))
     wenv.fstr = "Initialization Complete"
     local initTime = os.epoch("utc") - t0
     local info = inv.reserve:getSlotInfo()
@@ -412,13 +422,20 @@ local function main()
         end
     end
 
+    if standalone then
+        inv.scheduler.queueTask(stl.Task.new({ function()
+            screen:run(win)
+        end }, "Screen"))
+    end
+
     local f = {
         receieveMessageThread,
         inventoryChangeThread,
         sset.checkForChangesThread,
         sendTaskUpdateThread,
         peripheralUpdateThread,
-        registryThread
+        registryThread,
+        logProvider.thread
     }
     local hostTask = stl.Task.new(f, "Host")
     inv.scheduler.queueTask(hostTask)
@@ -443,6 +460,64 @@ if beingRequired then
 end
 
 -- Running from commandline
-parallel.waitForAny(function()
-    screen:run(win)
-end, main)
+local ok, err = pcall(main, true)
+logProvider.flush()
+
+win.clear()
+win.setVisible(true)
+if not ok and err ~= "Terminated" then
+    shrekui.load_screen {
+        type = "Screen",
+        content = {
+            {
+                type = "Text",
+                x = 1,
+                y = 1,
+                w = "w",
+                h = 1,
+                text = "Oops, SSD crashed!",
+                theme = {
+                    { "fill_color", "red" }
+                }
+            },
+            {
+                type = "Text",
+                x = 1,
+                y = 2,
+                w = "w",
+                h = "h-2",
+                text = err,
+                scrollbar = true,
+                horizontal_alignment = "left",
+                theme = {
+                    { "text_color", "red" },
+                    { "padding",    { 1, 1, 0, 1 } }
+                }
+            },
+            {
+                type = "Button",
+                x = 1,
+                y = "h",
+                w = "w/2",
+                h = 1,
+                text = "Reboot",
+                on_click = function(self)
+                    os.reboot()
+                end
+            },
+            {
+                type = "Button",
+                x = "w/2",
+                y = "h",
+                w = "w/2",
+                h = 1,
+                text = "Quit",
+                on_click = function(self)
+                    self:get_root():stop()
+                end
+            }
+        }
+    }:run(win)
+end
+term.clear()
+term.setCursorPos(1, 1)

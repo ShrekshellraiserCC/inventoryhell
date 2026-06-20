@@ -266,7 +266,7 @@ _ENV.tapi.register_screen("listing:listing", {
                 {
                     type = "Button",
                     text = "?",
-                    on_click = "$tapi.open_screen('help_itemdescriptors')$",
+                    on_click = "$tapi.open_screen('help:itemdescriptors')$",
                     x = "w-2",
                     h = 1
                 },
@@ -356,14 +356,8 @@ end)
 local request_screen_args = {
     type = "Screen",
     content = {
-        {
-            type = "Text",
-            h = 1,
-            text = "nterm",
-            horizontal_alignment = "left",
-            class = "heading"
-        },
-        _ENV.back_button_template(),
+        tapi.header_template("Request"),
+        tapi.back_button_template(),
         {
             type = "Text",
             x = 1,

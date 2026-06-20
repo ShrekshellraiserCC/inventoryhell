@@ -7,13 +7,10 @@ local hid, modem, hmn
 hid = sset.get(sset.hid)
 hmn = sset.get(sset.hmn)
 
-local logger
-local function log(s, ...)
-    if logger then
-        logger(s, ...)
-    end
-end
+---@type ssd.libs.slogger.Logger
+local logger = setmetatable({}, { __index = function() return function() end end })
 
+---@param l ssd.libs.slogger.Logger
 function clientlib.setLogger(l)
     logger = l
 end
@@ -99,7 +96,7 @@ local function sendAndRecieve(msg)
     assert(msg.id == nil, "Cannot send field id in message.")
     local id = getUid()
     msg.id = id
-    log("Sent request %d type=%s", id, msg.type)
+    logger.fdebug("Sent request %d type=%s", id, msg.type)
     rednet.send(hid, msg, clientlib.protocol)
     local timeouts = 0
     local rounds = 0
@@ -114,14 +111,16 @@ local function sendAndRecieve(msg)
             serverState = serverStates.CONNECTED
             if response.type == msg.type then
                 throbberState = " "
-                log("Got response for %d", id)
+                logger.fdebug("Got response for %d", id)
                 updateStatusString()
                 return table.unpack(response.result)
             elseif response.type == "ACK" and response.ftype == msg.type then
                 gotAck = true
-                log("Got ACK for %d", id)
+                logger.fdebug("Got ACK for %d", id)
             elseif response.type == "ERROR" then
-                error(("Got error from server while processing request:\n%s"):format(response.error), 0)
+                local s = ("Got error from server while processing request:\n%s"):format(response.error)
+                logger.error(s)
+                error(s, 0)
             end
         elseif sender == nil then
             timeouts = timeouts + 1
@@ -132,11 +131,11 @@ local function sendAndRecieve(msg)
                 serverState = serverStates.MISSING
                 throbberState = "?"
                 updateStatusString()
-                log("Gave up sending request %d", id)
+                logger.ferror("Gave up sending request %d", id)
                 return
             end
             timeouts = 0
-            log("Resending request %d", id)
+            logger.fwarn("Resending request %d", id)
             rednet.send(hid, msg, clientlib.protocol)
         elseif timeouts > maxAckTimeouts and gotAck then
             gotAck = false
@@ -146,7 +145,7 @@ local function sendAndRecieve(msg)
                 return
             end
             serverState = serverStates.MISSING
-            log("ACK expired for %d", id)
+            logger.ferror("ACK expired for %d", id)
         end
         updateStatusString()
     end

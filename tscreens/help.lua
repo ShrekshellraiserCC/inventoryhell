@@ -22,7 +22,7 @@ ItemDescriptors can contain as many specifiers as required. For example
 will select any logs that have a count > 100, and are not Jungle Logs.
 ]]
 
-tapi.register_screen("help_itemdescriptors", {
+tapi.register_screen("help:itemdescriptors", {
     type = "Screen",
     content = {
         _ENV.back_button_template(),
@@ -36,6 +36,39 @@ tapi.register_screen("help_itemdescriptors", {
             type = "Text",
             y = 2,
             text = itemdescriptors_help_string,
+            horizontal_alignment = "left",
+            scrollbar = true,
+            padding = 1
+        },
+    }
+})
+
+local edit_recipe_help_string = [[
+Recipes consist of a list of items, and a list of SlotMaps.
+
+On the left is your list of items, you can click the +/- buttons to create new and delete items.
+Click on an item in the list to select it
+Then use the input box or + button to the right to input an ItemDescriptor.
+
+Once you have your items prepared, select a recipe slot in the right list.
+Use the dropdown to select one of the items for the slot, and the input to set the quantity.
+Click the red x to clear that slot.
+]]
+
+tapi.register_screen("help:edit_recipe", {
+    type = "Screen",
+    content = {
+        _ENV.back_button_template(),
+        {
+            type = "Text",
+            h = 1,
+            text = "Recipe Help",
+            class = "heading"
+        },
+        {
+            type = "Text",
+            y = 2,
+            text = edit_recipe_help_string,
             horizontal_alignment = "left",
             scrollbar = true,
             padding = 1

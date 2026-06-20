@@ -35,9 +35,10 @@ lib.clone = clone
 ---@param invList string[]
 ---@param wmodem Modem?
 ---@param tracker ScanTracker?
+---@param provider ssd.libs.slogger.LogProvider
 ---@param registry ssd.libs.registry
 ---@return ACL
-function lib.wrap(invList, wmodem, tracker, logger, registry)
+function lib.wrap(invList, wmodem, tracker, provider, registry)
     -- Called 'this' to avoid scope conflictions with 'self'
     ---@class ACL
     local this = {}
@@ -46,7 +47,8 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
     for k, v in ipairs(invList) do
         registry.mark_used(v, "Storage")
     end
-    local invReserve = VirtualInv.new(invList, tracker, logger)
+    local logger = provider.logger("ACL")
+    local invReserve = VirtualInv.new(invList, tracker, provider)
     this.reserve = invReserve
     invReserve:defrag()
 
@@ -109,6 +111,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
             os.pullEvent("turtle_freed")
             return allocateTurtle()
         end
+        logger.finfo("Allocated turtle %s", turt)
         freeTurtles[turt] = nil
         busyTurtles[turt] = true
         return turt
@@ -118,6 +121,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         freeTurtles[turt] = true
         busyTurtles[turt] = nil
         os.queueEvent("turtle_freed")
+        logger.finfo("Freed turtle %s", turt)
     end
 
     ---@class QueableTask : Task
@@ -554,7 +558,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         saveFile(machinesFN, smachines)
         saveFile(machineTypesFN, stypes)
         saveFile(itemCacheFN, IDCacheList)
-        logger("Saved recipes.")
+        logger.info("Saved recipes.")
     end
     this.craft.saveRecipes = saveRecipes
 
@@ -826,7 +830,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
     ---@class RegisteredMachineType
     ---@field slots SlotMap[]
     ---@field id integer
-    ---@field output SlotMap
+    ---@field output {[1]:integer,[2]:integer,[3]:integer?}
     ---@field mtype string
     ---@field ptype string?
     ---@field round (fun(n:integer):integer)? Round to most efficient processing interval
@@ -856,8 +860,8 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
     ---Reserve a machine for use
     ---@param mtype string
     ---@return string
-    ---@return {[1]:string,[2]:integer}[]
-    ---@return {[1]:string,[2]:integer}
+    ---@return SlotMap[]
+    ---@return {[1]:string,[2]:integer,[3]:integer?}
     function this.craft.allocateMachine(mtype)
         local machine = next(freeMachines[mtype])
         if not machine then
@@ -877,6 +881,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         local output = {
             rmachine.invs[outputInfo[1]], outputInfo[2]
         }
+        logger.finfo("Allocated Machine %s %s", mtype, machine)
         return machine, slotlut, output
     end
 
@@ -887,13 +892,14 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         local ptype = registeredMachines[machine].ptype
         freeMachines[ptype or mtype][machine] = true
         busyMachines[ptype or mtype][machine] = nil
+        logger.finfo("Freed Machine %s %s", mtype, machine)
         os.queueEvent("machine_freed")
     end
 
     ---Define a new type of machine
     ---@param mtype string
     ---@param slotmap SlotMap[] inv index, slot
-    ---@param outputSlot SlotMap inv index, slot
+    ---@param outputSlot {[1]:integer,[2]:integer,[3]:integer?} inv index, slot
     ---@param round (fun(n:integer):integer)? Round to most efficient processing interval
     ---@param process MachineProcess? Function ran alongside item i/o functions
     function this.craft.newMachineType(mtype, slotmap, outputSlot, round, process)
@@ -923,7 +929,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
     ---@param mtype string
     ---@param ptype string
     ---@param slotmap SlotMap[]
-    ---@param outputslot SlotMap
+    ---@param outputslot {[1]:integer,[2]:integer,[3]:integer?}
     ---@param process MachineProcess? Function ran alongside item i/o functions
     function this.craft.newAlternativeMachineType(mtype, ptype, slotmap, outputslot, process)
         shrexpect({ "string", "string", "integer[][]", "integer[]", "function?" },
@@ -948,12 +954,48 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
         end
     end
 
+    ---@param machine RegisteredMachine
+    local function machineRegisterTask(machine)
+        local f = {}
+        local machineValid = true
+        for i, v in ipairs(machine.invs) do
+            f[i] = function()
+                local ok, l = pcall(peripheral.call, v, "list")
+                if not ok then
+                    logger.fwarn("Machine '%s' has non-inventory '%s' assigned.", machine.name, v)
+                    machineValid = false
+                    return
+                end
+                for slot in pairs(l) do
+                    this.reserve:pullItems(v, slot)
+                end
+            end
+        end
+        local clearTask = TaskLib.Task.new(f, "MachineClean:" .. machine.name)
+        local t = TaskLib.Task.new({
+            function()
+                if machineValid then
+                    this.craft.freeMachine(machine.name)
+                end
+            end
+        }, "MachineRegister:" .. machine.name)
+        clearTask:addSubtask(t)
+        this.scheduler.queueTask(clearTask)
+    end
+
     ---Register a machine of a given type
     ---@param mtype string
     ---@param name string
     ---@param invs string[]?
     function this.craft.registerMachine(mtype, name, invs)
         shrexpect({ "string", "string", "string[]?" }, { mtype, name, invs })
+        if registeredMachines[name] then
+            if busyMachines[mtype][name] then
+                logger.ferror("Cannot edit the machine '%s' while in use.", name)
+                return false
+            end
+            freeMachines[mtype][name] = nil
+        end
         invs = invs or { name }
         local label = "Machine@" .. name
         for i, v in ipairs(invs) do
@@ -961,12 +1003,14 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
             invReserve:removeInventory(v)
         end
         local ptype = registeredMachineTypes[mtype].ptype
-        registeredMachines[name] = { invs = invs, mtype = mtype, ptype = ptype, name = name }
-        freeMachines[ptype or mtype][name] = true
+        local m = { invs = invs, mtype = mtype, ptype = ptype, name = name }
+        registeredMachines[name] = m
+        machineRegisterTask(m)
     end
 
     ---@param name string
     function this.craft.deleteMachine(name)
+        shrexpect({ "string" }, { name })
         local machine = registeredMachines[name]
         if not machine then return false end
         if busyMachines[machine.mtype][name] then
@@ -1076,15 +1120,39 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
     ---@return MachineCraftTask
     ---@return integer craftCount
     function MachineCraftTaskFactory__index:build()
+        if self.machine == nil then
+            error("Cannot build MachineCraftTaskFactory without a machine target.", 1)
+        end
         local checkTime = 0.5
         local machine, slotlut, output
         local mtype = self.machine
-        local doAllocate = self.machine
-        local allocateTask
         local craftCount = machineRoundType(mtype, self.count, self.produces)
-        allocateTask = TaskLib.Task.new({ function()
+        local allocateTask = TaskLib.Task.new({ function()
             machine, slotlut, output = this.craft.allocateMachine(self.machine)
         end }, "MachineAllocate:" .. mtype)
+        local cleanTask = TaskLib.Task.new({
+            function()
+                local reserve = self.r or this.reserve
+                -- clear input slots
+                local invs = registeredMachines[machine].invs
+                for _, info in pairs(slotlut) do
+                    reserve:pullItems(invs[info[1]], info[2])
+                end
+            end,
+            function()
+                local reserve = self.r or this.reserve
+                -- clear output slots
+                local inv = output[1]
+                local ok, list = pcall(peripheral.call, inv, "list")
+                for i = output[2], output[3] or output[2] do
+                    if ok and list[i] or not ok then
+                        reserve:pullItems(inv, i)
+                    end
+                end
+            end
+        }, "MachineClean:" .. mtype)
+        cleanTask:addSubtask(allocateTask)
+        -- Clear the machine for safety
         local moveFuncs = {}
         -- Setup pushItem calls
         for i, v in ipairs(self.items) do
@@ -1128,9 +1196,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
             return machine, craftCount, slotlut
         end)
         local moveTask = TaskLib.Task.new(moveFuncs, "MachineMove:" .. mtype)
-        if doAllocate then
-            moveTask:addSubtask(allocateTask)
-        end
+        moveTask:addSubtask(cleanTask)
         local freeTask = TaskLib.Task.new({ function()
             this.craft.freeMachine(machine)
         end }, "MachineFree:" .. mtype):addSubtask(moveTask)
@@ -1201,9 +1267,7 @@ function lib.wrap(invList, wmodem, tracker, logger, registry)
     local function loadPlugins(dir)
         local list = fs.list(dir)
         for i, v in ipairs(list) do
-            if logger then
-                logger("Loading Plugin: " .. v)
-            end
+            logger.finfo("Loading Plugin: %s", v)
             loadfile(fs.combine(dir, v), "t", _ENV)()(this)
         end
     end

@@ -18,6 +18,7 @@ local clientlib = require "libs.clientlib"
 local sset = require "libs.sset"
 local STL = require "libs.STL"
 local ID = require "libs.ItemDescriptor"
+local slogger = require "libs.slogger"
 local scheduler = STL.Scheduler()
 
 if sset.get(sset.debug) then
@@ -34,9 +35,12 @@ local debounceTid = os.startTimer(debounceDelay)
 
 ---@class SSDTermAPI
 local tapi = {
-    sset = sset
+    sset = sset,
 }
 tapi.scheduler = scheduler
+tapi.logger = slogger.new("CLIENT", "clientlog.txt")
+local clog = tapi.logger.logger("clib")
+clientlib.setLogger(clog)
 
 if turtle then
     turtle.select(16)
@@ -530,8 +534,9 @@ load_screen("tscreens/help.lua")
 load_screen("tscreens/log.lua")
 load_screen("tscreens/crafting.lua")
 
+local host
 if enable_host then
-    local host = require("host")
+    host = require("host")
     scheduler.queueTask(STL.Task.new({ host.run }, "Host"))
     host.screen:add_widget(ui.classes.Button:new(env.back_button_template {
         on_click = env.tapi.back
@@ -566,12 +571,16 @@ scheduler.queueTask(STL.Task.new({
     sset.checkForChangesThread
 }, "Settings"))
 scheduler.queueTask(STL.Task.new({
+    tapi.logger.thread
+}, "Logger"))
+scheduler.queueTask(STL.Task.new({
     init
 }, "Init"))
 
 
 local ok, err = pcall(scheduler.run)
 -- TODO get the error out better!!!
+tapi.logger.flush()
 win.clear()
 win.setVisible(true)
 if not ok and err ~= "Terminated" then

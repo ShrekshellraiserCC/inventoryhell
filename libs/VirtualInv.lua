@@ -366,16 +366,6 @@ local VirtualInv__index = setmetatable({}, Reserve)
 VirtualInv__index.__type = "VirtualInv"
 local VirtualInv = { __index = VirtualInv__index }
 
-function VirtualInv__index:_log(verbose, s, ...)
-    if verbose then
-        if self._logger then
-            self._logger(s:format(...))
-        else
-            print(s:format(...))
-        end
-    end
-end
-
 ---Transfer a set amount of items between Reserves
 ---@param from Reserve
 ---@param to Reserve
@@ -673,16 +663,15 @@ function VirtualInv__index:executeDefrag(executor, tracker)
 end
 
 ---Defrag this VirtualInv
----@param verbose boolean?
 ---@param tracker ScanTracker?
-function VirtualInv__index:defrag(verbose, tracker)
+function VirtualInv__index:defrag(tracker)
     local executor = newParallelismHandler()
-    self:_log(verbose, "Defragging...")
+    self._logger.info("Defragging...")
     local t0 = os.epoch("utc")
     self:executeDefrag(executor, tracker)
     executor:execute()
     local t1 = os.epoch("utc")
-    self:_log(verbose, "Done [%.2f]", (t1 - t0) / 1000)
+    self._logger.finfo("Done [%.2f]", (t1 - t0) / 1000)
 end
 
 ---Check if there are 0 of an item, and delete it if there is
@@ -811,6 +800,9 @@ end
 ---@param inv string
 function VirtualInv__index:removeInventory(inv)
     local coords = {}
+    if not peripheral.isPresent(inv) then
+        return
+    end
     for i = 1, invCall(inv, "size") do
         local icoord = coordLib.InventoryCoordinate(inv, i)
         self:_emptySlot(icoord)
@@ -985,9 +977,8 @@ local scanRatio = 2
 local scanMax = 128
 ---Get a list of functions to call in parallel to scan this Reserve
 ---This uses multiple threads to list the contents of each inventory!
----@param verbose boolean?
 ---@param tracker ScanTracker?
-function VirtualInv__index:executeScan(verbose, tracker)
+function VirtualInv__index:executeScan(tracker)
     tracker = tracker or defaultTracker()
     ---@type table<string,boolean>
     local inventories = {}
@@ -1003,8 +994,8 @@ function VirtualInv__index:executeScan(verbose, tracker)
         slotsPerInventory[inv] = slotsPerInventory[inv] or {}
         slotsPerInventory[inv][#slotsPerInventory[inv] + 1] = slot
     end
-    self:_log(verbose, "Discovered %d slots across %d inventories.", tracker.totalSlots, tracker.totalInvs)
-    self:_log(verbose, ".list() Contents...")
+    self._logger.finfo("Discovered %d slots across %d inventories.", tracker.totalSlots, tracker.totalInvs)
+    self._logger.info(".list() Contents...")
     local t0 = os.epoch("utc")
     local listings = {}
     local invExecutor = newParallelismHandler()
@@ -1016,16 +1007,16 @@ function VirtualInv__index:executeScan(verbose, tracker)
     end
     invExecutor:execute()
     local t1 = os.epoch("utc")
-    self:_log(verbose, "Done [%.2f]", (t1 - t0) / 1000)
+    self._logger.finfo("Done [%.2f]", (t1 - t0) / 1000)
     t0 = t1
-    self:_log(verbose, "Detailed Scan...")
+    self._logger.info("Detailed Scan...")
     local slotExecutor = newParallelismHandler()
     for inv in pairs(inventories) do
         self:_scanInv(inv, listings[inv], slotsPerInventory[inv], slotExecutor, tracker)
     end
     slotExecutor:execute()
     t1 = os.epoch("utc")
-    self:_log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
+    self._logger.finfo("Done [%.2fs]", (t1 - t0) / 1000)
 end
 
 ---Scan all slots this VirtualInv covers
@@ -1044,15 +1035,15 @@ function VirtualInv__index:scan(verbose)
             local percentage = tracker.slotsScanned / tracker.totalSlots
             local eta = (t1 - t0) * (1 / (percentage) - 1)
             term.setTextColor(colors.white)
-            self:_log(verbose, "%d slots remain (%.2f%%). ETA: %.2fs", remaining, percentage * 100, eta / 1000)
+            term.write(("%d slots remain (%.2f%%). ETA: %.2fs"):format(remaining, percentage * 100, eta / 1000))
             term.setCursorPos(ox, oy)
             sleep(0.2)
         end
     end
     local function run()
-        self:executeScan(verbose, tracker)
+        self:executeScan(tracker)
     end
-    self:_log(verbose, "Detailed Cache Build...")
+    self._logger.info("Detailed Cache Build...")
     if verbose then
         parallel.waitForAny(throbber, run)
     else
@@ -1127,8 +1118,9 @@ end
 
 ---@param invs InventoryCompatible[]
 ---@param tracker ScanTracker?
+---@param provider ssd.libs.slogger.LogProvider
 ---@return VirtualInv
-function VirtualInv.new(invs, tracker, logger)
+function VirtualInv.new(invs, tracker, provider)
     local ess = Reserve.emptySlotStorage()
     ---@diagnostic disable-next-line: missing-fields
     ---@class VirtualInv : Reserve
@@ -1139,10 +1131,9 @@ function VirtualInv.new(invs, tracker, logger)
     self.itemLocks = {}
     self.realSlotList = {}
     self.invSizes = {}
-    self._logger = logger
+    self._logger = provider.logger("VI")
     local f = {}
-    local verbose = true
-    self:_log(verbose, "Gathering inventory sizes... ")
+    self._logger.info("Gathering inventory sizes... ")
     local t0 = os.epoch("utc")
     for _, inv in ipairs(invs) do
         f[#f + 1] = function()
@@ -1151,8 +1142,8 @@ function VirtualInv.new(invs, tracker, logger)
     end
     batchExecute(f, false, 128)
     local t1 = os.epoch("utc")
-    self:_log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
-    self:_log(verbose, "Generating Coordinates... ")
+    self._logger.finfo("Done [%.2fs]", (t1 - t0) / 1000)
+    self._logger.info("Generating Coordinates... ")
     t0 = t1
     for _, inv in ipairs(invs) do
         for slot = 1, self.invSizes[inv] do
@@ -1161,7 +1152,7 @@ function VirtualInv.new(invs, tracker, logger)
         end
     end
     t1 = os.epoch("utc")
-    self:_log(verbose, "Done [%.2fs]", (t1 - t0) / 1000)
+    self._logger.finfo("Done [%.2fs]", (t1 - t0) / 1000)
 
 
     self.virtSlots = {}
@@ -1173,12 +1164,12 @@ function VirtualInv.new(invs, tracker, logger)
     self.realItems = {}
 
     if tracker then
-        self:executeScan(verbose, tracker)
+        self:executeScan(tracker)
     else
-        self:scan(verbose)
+        self:scan()
     end
 
-    self:defrag(verbose, tracker)
+    self:defrag(tracker)
 
     return self
 end

@@ -1134,7 +1134,7 @@ _ENV.tapi.register_screen("crafting:edit_recipe", {
         {
             type = "Frame",
             y = 4,
-            h = "h-4",
+            h = "h-5",
             x = "w/2+1",
             content = {
                 {
@@ -1233,6 +1233,16 @@ _ENV.tapi.register_screen("crafting:edit_recipe", {
                     end
                 }
             }
+        },
+        {
+            type = "Button",
+            y = "h-1",
+            x = "w/2+1",
+            h = 1,
+            text = "HELP",
+            on_click = function()
+                tapi.open_screen("help:edit_recipe")
+            end
         },
         {
             type = "Button",
