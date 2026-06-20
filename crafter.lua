@@ -9,6 +9,7 @@ local clientlib = require "libs.clientlib"
 local shrekui = require "libs.shrekui"
 
 clientlib.open()
+modem.open(7777)
 turtle.select(16)
 
 local win = window.create(term.current(), 1, 1, term.getSize())
