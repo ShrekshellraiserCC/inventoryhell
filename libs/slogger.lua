@@ -31,7 +31,7 @@ function slogger.new(side, fn)
     end
 
     local function log(level, name, s)
-        if level > filter then return end
+        if slogger.levels[level] > filter then return end
         local time = math.floor(os.clock() * 20)
         local ns =
             ("(%s)[%5s][%s:%s]: %s"):format(time, level, side, name, s)
