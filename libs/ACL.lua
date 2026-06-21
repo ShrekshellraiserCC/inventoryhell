@@ -42,7 +42,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     -- Called 'this' to avoid scope conflictions with 'self'
     ---@class ACL
     local this = {}
-    this.scheduler = TaskLib.Scheduler()
+    this.scheduler = TaskLib.Scheduler(provider.logger("STL"))
 
     for k, v in ipairs(invList) do
         registry.mark_used(v, "Storage")
@@ -274,6 +274,8 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     local lastMachineTypeID = 1
     ---@type table<string,RegisteredMachine>
     local registeredMachines = {}
+    ---@type table<string,table<string,RegisteredMachine>>
+    local registeredMachinesByType = {}
 
     ---@class RegisteredRecipe
     ---@field id integer
@@ -533,6 +535,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     local machineTypesFN = "machine_types.txt"
     local itemCacheFN = "item_cache.txt"
     local function saveRecipes()
+        logger.trace("Saving Recipes.")
         local seenRecipes = {}
         local sreps = {}
         for ic, recipes in pairs(registeredRecipes) do
@@ -558,11 +561,12 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         saveFile(machinesFN, smachines)
         saveFile(machineTypesFN, stypes)
         saveFile(itemCacheFN, IDCacheList)
-        logger.info("Saved recipes.")
+        logger.info("Saved Recipes.")
     end
     this.craft.saveRecipes = saveRecipes
 
     local function loadRecipes()
+        logger.trace("Loading Recipes.")
         if not (fs.exists(recipeFN) and fs.exists(itemCacheFN)
                 and fs.exists(machinesFN) and fs.exists(machineTypesFN)) then
             return
@@ -576,6 +580,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         local smachines = readFromFile(machinesFN) --[[@as string[] ]]
         local stypes = readFromFile(machineTypesFN) --[[@as string[] ]]
         registeredMachineTypes = {}
+        registeredMachinesByType = {}
         machineTypeLut = {}
         lastMachineTypeID = 1
         freeMachines = {}
@@ -608,6 +613,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
             local r = unserializeRecipe(v)
             this.craft.registerRecipe(r.type, r.items, r.recipe, r.product, r.produces)
         end
+        logger.info("Loaded Recipes.")
     end
     this.craft.loadRecipes = loadRecipes
 
@@ -690,7 +696,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         else
             task, craftCount = this.craft.generic(count)
                 :reserveMachine(recipe.type)
-                :setRecipe(recipe.items, recipe.recipe, recipe.produces)
+                :setRecipe(recipe.items, recipe.recipe, recipe.produces, recipe.product)
                 :build()
         end
         jobItemCounts = jobItemCounts or {}
@@ -879,7 +885,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         end
         local outputInfo = registeredMachineTypes[rmtype].output
         local output = {
-            rmachine.invs[outputInfo[1]], outputInfo[2]
+            rmachine.invs[outputInfo[1]], outputInfo[2], outputInfo[3]
         }
         logger.finfo("Allocated Machine %s %s", mtype, machine)
         return machine, slotlut, output
@@ -890,9 +896,12 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     function this.craft.freeMachine(machine)
         local mtype = registeredMachines[machine].mtype
         local ptype = registeredMachines[machine].ptype
-        freeMachines[ptype or mtype][machine] = true
-        busyMachines[ptype or mtype][machine] = nil
-        logger.finfo("Freed Machine %s %s", mtype, machine)
+        logger.fdebug("Freeing Machine %s (type %s)", machine, mtype)
+        local itype = ptype or mtype
+        freeMachines[itype] = freeMachines[itype] or {}
+        freeMachines[itype][machine] = true
+        busyMachines[itype] = busyMachines[itype] or {}
+        busyMachines[itype][machine] = nil
         os.queueEvent("machine_freed")
     end
 
@@ -921,6 +930,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
             id = idx,
             mtype = mtype,
         }
+        registeredMachinesByType[mtype] = registeredMachinesByType[mtype] or {}
         busyMachines[mtype] = busyMachines[mtype] or {}
         freeMachines[mtype] = freeMachines[mtype] or {}
     end
@@ -932,7 +942,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     ---@param outputslot {[1]:integer,[2]:integer,[3]:integer?}
     ---@param process MachineProcess? Function ran alongside item i/o functions
     function this.craft.newAlternativeMachineType(mtype, ptype, slotmap, outputslot, process)
-        shrexpect({ "string", "string", "integer[][]", "integer[]", "function?" },
+        shrexpect({ "string", "string", "number[][]", "number[]", "function?" },
             { mtype, ptype, slotmap, outputslot, process })
         local idx = lastMachineTypeID
         if machineTypeLut[mtype] then
@@ -952,6 +962,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
                 mtype = mtype
             }
         end
+        registeredMachinesByType[mtype] = registeredMachinesByType[mtype] or {}
     end
 
     ---@param machine RegisteredMachine
@@ -961,7 +972,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         for i, v in ipairs(machine.invs) do
             f[i] = function()
                 local ok, l = pcall(peripheral.call, v, "list")
-                if not ok then
+                if not (ok and type(l) == "table") then
                     logger.fwarn("Machine '%s' has non-inventory '%s' assigned.", machine.name, v)
                     machineValid = false
                     return
@@ -1005,6 +1016,8 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         local ptype = registeredMachineTypes[mtype].ptype
         local m = { invs = invs, mtype = mtype, ptype = ptype, name = name }
         registeredMachines[name] = m
+        registeredMachinesByType[mtype][name] = m
+        logger.fdebug("")
         machineRegisterTask(m)
     end
 
@@ -1014,6 +1027,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         local machine = registeredMachines[name]
         if not machine then return false end
         if busyMachines[machine.mtype][name] then
+            logger.fwarn("Unable to delete machine %s, as it is in use.", name)
             return false -- machine is in use.
         end
         for i, v in ipairs(machine.invs) do
@@ -1021,12 +1035,23 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         end
         freeMachines[machine.mtype][name] = nil
         registeredMachines[name] = nil
+        logger.finfo("Deleted machine %s.", name)
         return true
     end
 
     ---@param mtype string
     function this.craft.deleteMachineType(mtype)
-        error("TODO") -- TODO
+        for name in pairs(registeredMachinesByType[mtype]) do
+            if not this.craft.deleteMachine(name) then
+                logger.fwarn("Unable to delete machine type %s, as it has busy machines.", mtype)
+            end
+        end
+        registeredMachineTypes[mtype] = nil
+        freeMachines[mtype] = nil
+        busyMachines[mtype] = nil
+        registeredMachinesByType[mtype] = nil
+        logger.finfo("Deleted machine type %s.", mtype)
+        return true
     end
 
     ---@return RegisteredMachineType[]
@@ -1108,11 +1133,13 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     ---@param items ItemDescriptor[]
     ---@param recipe integer[]|pair[] {item,count}
     ---@param produces integer
+    ---@param product ItemCoordinate
     ---@return self
-    function MachineCraftTaskFactory__index:setRecipe(items, recipe, produces)
+    function MachineCraftTaskFactory__index:setRecipe(items, recipe, produces, product)
         self.recipe = recipe
         self.items = items
         self.produces = produces
+        self.product = product
         return self
     end
 
@@ -1134,9 +1161,8 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
             function()
                 local reserve = self.r or this.reserve
                 -- clear input slots
-                local invs = registeredMachines[machine].invs
                 for _, info in pairs(slotlut) do
-                    reserve:pullItems(invs[info[1]], info[2])
+                    reserve:pullItems(info[1], info[2])
                 end
             end,
             function()
@@ -1181,12 +1207,17 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         -- Setup pullItems calls
         moveFuncs[#moveFuncs + 1] = function()
             local reserve = self.r or this.reserve
-            local fromInv, fromSlot = table.unpack(output)
+            local fromInv, fromSlot, maxSlot = table.unpack(output)
             local moved = 0
             local toMove = self.produces * craftCount
+            local outputCoord = self.product
             while moved < toMove do
-                local movedIter = reserve:pullItems(fromInv, fromSlot, toMove - moved)
-                moved = moved + movedIter
+                for i = fromSlot, maxSlot or fromSlot do
+                    local movedIter, coord = reserve:pullItems(fromInv, i)
+                    if coord == outputCoord then
+                        moved = moved + movedIter
+                    end
+                end
                 if moved < toMove then
                     sleep(checkTime)
                 end
@@ -1263,7 +1294,6 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         parser(json)
     end
 
-    this.craft.loadRecipes()
     local function loadPlugins(dir)
         local list = fs.list(dir)
         for i, v in ipairs(list) do
@@ -1271,7 +1301,6 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
             loadfile(fs.combine(dir, v), "t", _ENV)()(this)
         end
     end
-    loadPlugins(sset.getInstalledPath "cplugins")
 
     ---@class RecipeInfo
     ---@field name string
@@ -1335,6 +1364,13 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         end
         return listing
     end
+
+    local loadRecipeTask = TaskLib.Task.new({ this.craft.loadRecipes }, "LoadRecipes")
+    local loadPluginsTask = TaskLib.Task.new({ function()
+        loadPlugins(sset.getInstalledPath "cplugins")
+    end }, "LoadPlugins")
+    loadPluginsTask:addSubtask(loadRecipeTask)
+    this.scheduler.queueTask(loadPluginsTask)
 
     ---Start this wrapper's coroutine
     ---Does not return, run this in parallel (or another coroutine manager)

@@ -15,7 +15,8 @@ slogger.levels = {
 
 ---@param side string
 ---@param fn string
-function slogger.new(side, fn)
+---@param filter ssd.libs.slogger.Level?
+function slogger.new(side, fn, filter)
     shrexpect({ "string", "string" }, { side, fn })
     assert(fs.open(fn, "w")).close()
     ---@type table<ssd.libs.slogger.LogTarget>
@@ -24,7 +25,8 @@ function slogger.new(side, fn)
     local provider = {}
     ---@type string[]
     local writeBuffer = {}
-    local filter = slogger.levels.TRACE
+    local writtenLines = 0
+    filter = filter or slogger.levels.TRACE
     ---@param f ssd.libs.slogger.Level
     function provider.setFilter(f)
         filter = f
@@ -107,10 +109,27 @@ function slogger.new(side, fn)
             logger.flog("DEBUG", s, ...)
         end
 
+        function logger.fatal(s)
+            logger.log("FATAL", s)
+        end
+
+        function logger.ffatal(s, ...)
+            logger.flog("FATAL", s, ...)
+        end
+
+        function logger.trace(s)
+            logger.log("TRACE", s)
+        end
+
+        function logger.ftrace(s, ...)
+            logger.flog("TRACE", s, ...)
+        end
+
         return logger
     end
 
     function provider.flush()
+        writtenLines = writtenLines + #writeBuffer
         local s = table.concat(writeBuffer, "\n")
         writeBuffer = {}
         local f = assert(fs.open(fn, "a"))

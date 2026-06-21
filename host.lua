@@ -20,11 +20,19 @@ local function broadcast(m)
 end
 
 local chestList = {}
+local patternAllowList = sset.get(sset.inventoryAllowPatterns)
 for i, v in ipairs({ peripheral.find("inventory") }) do
     local name = peripheral.getName(v)
-    -- if name:match("minecraft:chest") then
-    chestList[#chestList + 1] = name
-    -- end
+    local good = false
+    for _, pattern in ipairs(patternAllowList) do
+        if name:match(pattern) then
+            good = true
+            break
+        end
+    end
+    if good then
+        chestList[#chestList + 1] = name
+    end
 end
 
 
@@ -425,7 +433,7 @@ local function main(standalone)
     if standalone then
         inv.scheduler.queueTask(stl.Task.new({ function()
             screen:run(win)
-        end }, "Screen"))
+        end }, "Screen", true))
     end
 
     local f = {
@@ -437,14 +445,14 @@ local function main(standalone)
         registryThread,
         logProvider.thread
     }
-    local hostTask = stl.Task.new(f, "Host")
+    local hostTask = stl.Task.new(f, "Host", true)
     inv.scheduler.queueTask(hostTask)
 
     local mf = {}
     for i = 1, 1 do
         mf[#mf + 1] = processMessageThread
     end
-    local messageTask = stl.Task.new(mf, "Messages")
+    local messageTask = stl.Task.new(mf, "Messages", true)
 
     inv.scheduler.queueTask(messageTask)
 

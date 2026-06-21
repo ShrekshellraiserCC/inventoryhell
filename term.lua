@@ -19,7 +19,6 @@ local sset = require "libs.sset"
 local STL = require "libs.STL"
 local ID = require "libs.ItemDescriptor"
 local slogger = require "libs.slogger"
-local scheduler = STL.Scheduler()
 
 if sset.get(sset.debug) then
     enable_debug = true
@@ -37,8 +36,9 @@ local debounceTid = os.startTimer(debounceDelay)
 local tapi = {
     sset = sset,
 }
-tapi.scheduler = scheduler
 tapi.logger = slogger.new("CLIENT", "clientlog.txt")
+local scheduler = STL.Scheduler(tapi.logger.logger("STL"))
+tapi.scheduler = scheduler
 local clog = tapi.logger.logger("clib")
 clientlib.setLogger(clog)
 
@@ -497,7 +497,7 @@ if turtle then
     scheduler.queueTask(STL.Task.new({
         turtleInventoryPoll,
         emptyTurtleThread
-    }, "Turtle"))
+    }, "Turtle", true))
 end
 local function externalInventoryPoll()
     while true do
@@ -509,7 +509,7 @@ end
 if invName then
     scheduler.queueTask(STL.Task.new({
         externalInventoryPoll
-    }, "External I/O"))
+    }, "External I/O", true))
 end
 local function init()
     if invName and peripheral.wrap(invName) then
@@ -537,7 +537,7 @@ load_screen("tscreens/crafting.lua")
 local host
 if enable_host then
     host = require("host")
-    scheduler.queueTask(STL.Task.new({ host.run }, "Host"))
+    scheduler.queueTask(STL.Task.new({ host.run }, "Host", true))
     host.screen:add_widget(ui.classes.Button:new(env.back_button_template {
         on_click = env.tapi.back
     }))
@@ -563,19 +563,19 @@ clientlib.subscribeTo({
 
 scheduler.queueTask(STL.Task.new({
     ui_event_loop, ui_render_loop
-}, "UI"))
+}, "UI", true))
 scheduler.queueTask(STL.Task.new({
     clientlib.run
-}, "Clientlib"))
+}, "Clientlib", true))
 scheduler.queueTask(STL.Task.new({
     sset.checkForChangesThread
-}, "Settings"))
+}, "Settings", true))
 scheduler.queueTask(STL.Task.new({
     tapi.logger.thread
-}, "Logger"))
+}, "Logger", true))
 scheduler.queueTask(STL.Task.new({
     init
-}, "Init"))
+}, "Init", true))
 
 
 local ok, err = pcall(scheduler.run)

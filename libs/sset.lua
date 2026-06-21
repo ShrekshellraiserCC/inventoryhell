@@ -290,6 +290,9 @@ sset.peripheralBroadcastInterval = registerSetting("host:peripheralBroadcastInte
 sset.recipeCacheDir = registerSetting("host:recipeCacheDir",
     "What directory should the recipes be saved in. WARNING: Make sure to save your recipes after changing this!",
     "string", "/", true, "global")
+sset.inventoryAllowPatterns = registerSetting("host:inventoryAllowPatterns",
+    "Lua patterns to use when searching for inventories to use for storage", "table",
+    { "chest.*" }, true, "global")
 
 sset.craftRotate = registerSetting("crafter:rotate", [[
 Should crafters rotate to indicate they have crafted an item.

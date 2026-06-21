@@ -12,10 +12,13 @@
 ---@field filter string?
 ---@field priority number
 ---@field callback TaskCallback?
+---@field is_critical boolean?
+---@field name string?
 
 ---@class Task
 ---@field id TaskID
 ---@field name string?
+---@field is_critical boolean?
 ---@field reserve Reserve?
 ---@field funcs TaskFunction[]
 ---@field subtasks Task[]
@@ -37,12 +40,13 @@ end
 
 ---Queue and wait for this task to execute
 function Task__index:await()
-
+    error("TODO?")
 end
 
----Assert that all operations in this task move the expected amount of items
+---This task erroring should error the system.
 ---@return self
 function Task__index:critical()
+    self.is_critical = true
     return self
 end
 
@@ -58,6 +62,8 @@ function Task__index:_getThreads()
             depends = self:_getDependencyIDs(),
             priority = self.priority or 1,
             callback = self.callback,
+            is_critical = self.is_critical,
+            name = self.name
         }
     end
     return t
@@ -132,10 +138,12 @@ end
 local lastid = 1
 ---@param funcs function[]
 ---@param name string?
-function Task.new(funcs, name)
+---@param critical boolean?
+function Task.new(funcs, name, critical)
     local self = setmetatable({}, Task)
     self.id = lastid
     self.name = name
+    self.is_critical = critical
     self.subtasks = {}
     lastid = lastid + 1
     self.funcs = funcs
@@ -156,7 +164,8 @@ local function removeIndiciesFromTable(idx, tab)
 end
 
 local TASK_LIMIT = 128
-local function Scheduler()
+---@param logger ssd.libs.slogger.Logger
+local function Scheduler(logger)
     ---@type TaskThreadDescriptor[]
     local executingThreads = {}
     ---@type TaskThreadDescriptor[]
@@ -227,6 +236,19 @@ local function Scheduler()
         return true
     end
 
+    local function onTaskError(task, filter)
+        local traceback = debug.traceback(task.thread, filter)
+        if task.is_critical then
+            local s = ("Error while executing critical thread %s (id: %s):\n%s")
+                :format(task.name or "", task.id, traceback)
+            logger.fatal(s)
+            error(s, 0)
+        else
+            logger.ferror("Error occured in thread %s (id: %s):\n%s",
+                task.name or "", task.id, traceback)
+        end
+    end
+
     ---@param t TaskThreadDescriptor
     local function makeTaskActive(t)
         t.thread = coroutine.create(t.call)
@@ -249,7 +271,7 @@ local function Scheduler()
             end
             return 0
         elseif not ok then
-            error(debug.traceback(t.thread, filter), 0)
+            onTaskError(t, filter)
         end
         runningTasks[t.id] = true
         if changedCallback then
@@ -305,7 +327,7 @@ local function Scheduler()
     local function taskNormalExit(filter, task)
         filter = filter or 0
         if type(filter) ~= "number" then
-            error(("Task Thread returned type %s, expected number!"):format(type(filter)))
+            error(("Task Thread returned type %s (value %s), expected number!"):format(type(filter), filter))
         end
 
         taskThreadCounts[task.id] = taskThreadCounts[task.id] - 1
@@ -323,39 +345,20 @@ local function Scheduler()
         end
     end
 
-    local function text(y, s, ...)
-        local ox, oy = term.getCursorPos()
-        term.setCursorPos(1, y)
-        term.clearLine()
-        term.write(s:format(...))
-        term.setCursorPos(ox, oy)
-    end
-    local function debugOverlay()
-        text(1, "E:%d,Q:%d", #executingThreads, #queuedThreads)
-        local s = ""
-        for i, v in pairs(taskThreadCounts) do
-            s = s .. " " .. v
-        end
-        text(2, "tTC[%s]", s)
-    end
-
     ---Tick the task list
     ---@param e any[]
     local function tick(e)
-        -- print("PRE", #queuedThreads)
         ---@type number[]
         local deadTasks = {}
-        -- print("START", #executingThreads, #queuedThreads)
         for i, task in ipairs(executingThreads) do
             if task.filter == nil or e[1] == "terminate" or e[1] == task.filter then
                 local ok, filter = coroutine.resume(task.thread, table.unpack(e))
                 if not ok then
-                    error(debug.traceback(task.thread, filter), 0) -- TODO make error handling better
+                    onTaskError(task, filter)
                 end
                 task.filter = filter
                 local status = coroutine.status(task.thread)
                 if status == "dead" then
-                    -- print("Removing the dead!", i)
                     deadTasks[#deadTasks + 1] = i
                     taskNormalExit(filter, task)
                 end
@@ -363,7 +366,6 @@ local function Scheduler()
         end
         removeIndiciesFromTable(deadTasks, executingThreads)
         pollQueue()
-        -- print("POST", #executingThreads)
     end
 
     local running
