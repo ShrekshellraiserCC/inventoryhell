@@ -1299,4 +1299,4 @@ _ENV.tapi.register_screen("crafting:menu", {
         }
     }
 }, nil, cenv)
-_ENV.tapi.register_menu_button(2, "Crafting", "crafting:menu")
+_ENV.tapi.register_menu_button(1, "Crafting", "crafting:menu")

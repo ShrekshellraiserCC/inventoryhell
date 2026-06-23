@@ -236,6 +236,15 @@ local function Scheduler(logger)
         return true
     end
 
+    ---@alias ssd.libs.stl.taskErrorCallback fun(name:string,id:integer)
+    ---@type ssd.libs.stl.taskErrorCallback?
+    local taskErroredCallback
+    ---@param f ssd.libs.stl.taskErrorCallback
+    function run.setErrorCallback(f)
+        taskErroredCallback = f
+    end
+
+    ---@param task TaskThreadDescriptor
     local function onTaskError(task, filter)
         local traceback = debug.traceback(task.thread, filter)
         if task.is_critical then
@@ -246,6 +255,9 @@ local function Scheduler(logger)
         else
             logger.ferror("Error occured in thread %s (id: %s):\n%s",
                 task.name or "", task.id, traceback)
+            if taskErroredCallback then
+                taskErroredCallback(task.name, task.id)
+            end
         end
     end
 
@@ -321,17 +333,7 @@ local function Scheduler(logger)
         removeIndiciesFromTable(toAdd, queuedThreads)
     end
 
-    ---Remove a task from the execution list
-    ---@param filter number
-    ---@param task TaskThreadDescriptor
-    local function taskNormalExit(filter, task)
-        filter = filter or 0
-        if type(filter) ~= "number" then
-            error(("Task Thread returned type %s (value %s), expected number!"):format(type(filter), filter))
-        end
-
-        taskThreadCounts[task.id] = taskThreadCounts[task.id] - 1
-        taskMovedItems[task.id] = taskMovedItems[task.id] + filter
+    local function taskExit(task)
         if taskThreadCounts[task.id] == 0 then
             taskThreadCounts[task.id] = nil
             allTasks[task.id] = nil
@@ -343,6 +345,20 @@ local function Scheduler(logger)
                 changedCallback(run)
             end
         end
+    end
+
+    ---Remove a task from the execution list
+    ---@param filter number
+    ---@param task TaskThreadDescriptor
+    local function taskNormalExit(filter, task)
+        filter = filter or 0
+        if type(filter) ~= "number" then
+            error(("Task Thread returned type %s (value %s), expected number!"):format(type(filter), filter))
+        end
+
+        taskThreadCounts[task.id] = taskThreadCounts[task.id] - 1
+        taskMovedItems[task.id] = taskMovedItems[task.id] + filter
+        taskExit(task)
     end
 
     ---Tick the task list
@@ -360,7 +376,11 @@ local function Scheduler(logger)
                 local status = coroutine.status(task.thread)
                 if status == "dead" then
                     deadTasks[#deadTasks + 1] = i
-                    taskNormalExit(filter, task)
+                    if ok then
+                        taskNormalExit(filter, task)
+                    else
+                        taskExit(task)
+                    end
                 end
             end
         end

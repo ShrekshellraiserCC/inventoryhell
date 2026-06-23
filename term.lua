@@ -3,14 +3,6 @@ local args = { ... }
 local enable_host
 local enable_debug
 
-for i, v in ipairs(args) do
-    if v == "+host" then
-        enable_host = true
-    elseif v == "+debug" then
-        enable_debug = true
-    end
-end
-
 package.path = package.path .. ";libs/?.lua"
 
 local ui = require "libs.shrekui"
@@ -20,8 +12,22 @@ local STL = require "libs.STL"
 local ID = require "libs.ItemDescriptor"
 local slogger = require "libs.slogger"
 
+local logger = slogger.new("CLIENT", "clientlog.txt")
+local clog = logger.logger("clib")
+
+for i, v in ipairs(args) do
+    if v == "+host" then
+        enable_host = true
+        clog.info("Enabled host.")
+    elseif v == "+debug" then
+        enable_debug = true
+    end
+end
+
+clientlib.setLogger(clog)
 if sset.get(sset.debug) then
     enable_debug = true
+    clog.info("Enabled debug.")
 end
 
 clientlib.open()
@@ -36,11 +42,9 @@ local debounceTid = os.startTimer(debounceDelay)
 local tapi = {
     sset = sset,
 }
-tapi.logger = slogger.new("CLIENT", "clientlog.txt")
-local scheduler = STL.Scheduler(tapi.logger.logger("STL"))
+tapi.logger = logger
+local scheduler = STL.Scheduler(logger.logger("STL"))
 tapi.scheduler = scheduler
-local clog = tapi.logger.logger("clib")
-clientlib.setLogger(clog)
 
 if turtle then
     turtle.select(16)
@@ -249,6 +253,42 @@ function env.depot()
     emptyTurtleInventory()
 end
 
+local w, h = term.getSize()
+env.notification_w = w - 6
+env.notification_hidden = true
+env.notification_show_time = 0
+env.notification_timeout = 0
+local notification_timout_timer
+---@param type string
+---@param s string
+local function show_notification(type, s)
+    env.notification_w = term.getSize() - 6
+    env.notification_hidden = false
+    env.notification_type = type
+    env.notification_text = s
+    local t = os.epoch("utc")
+    env.notification_show_time = t
+    env.notification_timeout = sset.get(sset.notificationTimeout)
+    notification_timout_timer = os.startTimer(env.notification_timeout / 1000)
+end
+local function dismiss_notification()
+    env.notification_hidden = true
+end
+local function notification_timeout_thread()
+    while true do
+        local e, id = os.pullEvent("timer")
+        if id == notification_timout_timer then
+            dismiss_notification()
+        end
+    end
+end
+---@param type string
+---@param text string
+---@param ... any
+function tapi.notification(type, text, ...)
+    show_notification(type, text:format(...))
+end
+
 ---@type table<string,shrekui.Screen>
 local screens = {}
 ---@type table<string,function>
@@ -265,13 +305,10 @@ local function register_screen_raw(name, screen, callback)
     screenCallbacks[name] = callback
     return screen
 end
----@param name string
----@param layout table
----@param callback function? Called when the screen is opened
----@param penv table? Parent environment, shadows the normal screen environment.
----@see SSDTermAPI
-local function register_screen(name, layout, callback, penv)
-    layout.content[#layout.content + 1] = {
+
+local apply_screen_template
+do
+    local status_text = {
         type = "Text",
         x = "w+1-" .. env.capi.statusWidth,
         y = 1,
@@ -282,7 +319,7 @@ local function register_screen(name, layout, callback, penv)
         horizontal_alignment = "right",
         text = "$capi.statusString$"
     }
-    layout.content[#layout.content + 1] = {
+    local heading_fill = {
         type = "Text",
         x = 1,
         y = 1,
@@ -292,6 +329,70 @@ local function register_screen(name, layout, callback, penv)
         class = "heading",
         text = ""
     }
+    local notification_frame = {
+        type = "Frame",
+        x = 3,
+        y = "h-4",
+        w = "w-4",
+        h = 3,
+        lz_offset = 100,
+        z = 100,
+        content = {
+            {
+                type = "Text",
+                y = 1,
+                h = 1,
+                w = "w-3",
+                text = "$notification_type$",
+                class = "notification"
+            },
+            {
+                type = "Text",
+                y = 2,
+                h = 1,
+                w = "w-3",
+                text = "$notification_text$",
+                class = "notification"
+            },
+            {
+                type = "Text",
+                y = 3,
+                h = 1,
+                w = "w-3",
+                text =
+                "$('\x7f'):rep(math.min(notification_w,math.floor(notification_w * (os.epoch'utc'-notification_show_time)/notification_timeout)))$",
+                id = "notification-progress",
+                class = "notification",
+                horizontal_alignment = "left"
+            },
+            {
+                type = "Button",
+                y = 1,
+                h = 3,
+                x = "w-2",
+                w = 3,
+                text = "X",
+                class = "notification",
+                on_click = dismiss_notification
+            }
+        },
+        hidden = "$notification_hidden$",
+        class = "notification"
+    }
+    function apply_screen_template(content)
+        content[#content + 1] = status_text
+        content[#content + 1] = heading_fill
+        content[#content + 1] = notification_frame
+    end
+end
+
+---@param name string
+---@param layout table
+---@param callback function? Called when the screen is opened
+---@param penv table? Parent environment, shadows the normal screen environment.
+---@see SSDTermAPI
+local function register_screen(name, layout, callback, penv)
+    apply_screen_template(layout.content)
     local senv = penv and setmetatable(penv, { __index = env }) or env
     local screen = ui.load_screen(layout, senv)
     return register_screen_raw(name, screen, callback)
@@ -326,7 +427,14 @@ register_screen("debug", {
                 tapi.open_screen(value)
             end
         },
-        env.back_button_template()
+        env.back_button_template(),
+        {
+            type = "Button",
+            y = "h",
+            on_click = function()
+                tapi.notification("john", "This is a notification...")
+            end
+        }
     }
 })
 
@@ -384,7 +492,11 @@ local menu_layout = {
                     h = 3,
                     w = "w",
                     text = "Reboot All",
-                    on_click = "$capi.rebootAll$"
+                    on_click = function()
+                        env.utils.confirm_screen("Reboot All",
+                            "Are you sure you want to reboot all computers on the network?", env.capi.rebootAll)
+                    end,
+                    class = "warning-button"
                 },
                 {
                     type = "Button",
@@ -393,7 +505,10 @@ local menu_layout = {
                     h = 3,
                     w = "w",
                     text = "Force Reboot Server",
-                    on_click = "$capi.forceRebootServer$",
+                    on_click = function()
+                        env.utils.confirm_screen("Force Reboot",
+                            "Are you sure you want to force reboot the host computer?", env.capi.forceRebootServer)
+                    end,
                     class = "danger-button"
                 },
                 {
@@ -545,10 +660,14 @@ if enable_host then
     register_menu_button(1, "Host", "host")
 end
 
-do
+if sset.get(sset.quitButton) then
     local quit = register_menu_button(3, "Quit")
-    quit.horizontal_alignment = "right"
     quit.on_click = env.quit
+end
+-- right align whatever button is furthest right
+do
+    local row = menu_layout.content[3].content
+    row[#row].horizontal_alignment = "right"
 end
 
 register_screen("menu", menu_layout)
@@ -558,11 +677,14 @@ clientlib.subscribeTo({
     start = init,
     tasks = function(l)
         server_tasks = l
+    end,
+    notifications = function(type, text)
+        tapi.notification(type, text)
     end
 })
 
 scheduler.queueTask(STL.Task.new({
-    ui_event_loop, ui_render_loop
+    ui_event_loop, ui_render_loop, notification_timeout_thread
 }, "UI", true))
 scheduler.queueTask(STL.Task.new({
     clientlib.run

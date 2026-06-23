@@ -8,15 +8,14 @@ local ItemDescriptor = require("libs.ItemDescriptor")
 local registry       = require("libs.registry")
 local Coordinates    = require("libs.Coordinates")
 local slogger        = require("libs.slogger")
-local network        = rednet -- TODO swap this for a custom impl
+local network        = require("libs.network")
 
 local protocol       = require("libs.clientlib").protocol
 local hostname       = "HOST_TEST"
 
 local id             = os.getComputerID()
 local function broadcast(m)
-    network.broadcast(m, protocol) -- oh god, implement a loopback in the custom impl!!
-    network.send(id, m, protocol)
+    network.broadcast(m)
 end
 
 local chestList = {}
@@ -100,13 +99,16 @@ logProvider.addTarget(function(s)
     log:log(s)
 end)
 local function main(standalone)
+    local logger = logProvider.logger("Host")
     -- Central host process for the storage system
     ---@alias Modem ccTweaked.peripherals.Modem
     local modem = peripheral.find("modem", function(name, wrapped)
         return not wrapped.isWireless()
     end) --[[@as ccTweaked.peripherals.Modem]]
-    network.open(peripheral.getName(modem))
+    local modemName = peripheral.getName(modem)
+    network.open(modemName)
     rednet.host(protocol, hostname) -- TODO change this with custom impl
+    logger.finfo("Opened modem %s.", modemName)
 
     local t0 = os.epoch("utc")
     local tracker = VirtualInv.defaultTracker()
@@ -174,10 +176,34 @@ local function main(standalone)
 
 
     local messageHandlers = {}
+    local hapi = {}
 
     local function registerMessageHandler(type, handle)
         messageHandlers[type] = handle
     end
+    hapi.registerMessageHandler = registerMessageHandler
+    ---@param type string
+    ---@param text string
+    ---@param destination integer?
+    function hapi.notification(type, text, destination)
+        destination = destination or "*"
+        network.send(destination, {
+            type = "notification",
+            ntype = type,
+            text = text
+        })
+    end
+
+    inv.scheduler.setErrorCallback(function(name, id)
+        logger.trace("setErrorCallback")
+        hapi.notification("Thread Error", ("Thread (%s) on host errored! Check host log for details."):format(name))
+    end)
+
+    registerMessageHandler("ping", function(msg)
+        return {
+            id = id,
+        }
+    end)
     registerMessageHandler("list", function(msg)
         return inv.list()
     end)
@@ -348,19 +374,18 @@ local function main(standalone)
                     local response = table.pack(table.unpack(result, 2))
                     if result[1] then
                         network.send(msg.sender, {
-                                result = response,
-                                type = msg.message.type,
-                                side = "server",
-                                id = msg.message.id
-                            },
-                            protocol)
+                            result = response,
+                            type = msg.message.type,
+                            side = "server",
+                            id = msg.message.id
+                        })
                     else
                         network.send(msg.sender, {
                             type = "ERROR",
                             error = result[2],
                             side = "server",
                             id = msg.message.id
-                        }, protocol)
+                        })
                         log:flog("Error processing client request %s.\n%s", textutils.serialise(msg.message), result[2])
                     end
                 end
@@ -372,7 +397,7 @@ local function main(standalone)
 
     local function receieveMessageThread()
         while true do
-            local sender, message, prot = network.receive(protocol)
+            local sender, message, prot = network.receive()
             if type(message) == "table" and message.side ~= "server" then
                 messageQueue[#messageQueue + 1] = { message = message, sender = sender }
                 os.queueEvent(messageQueuedEvent)
@@ -381,7 +406,7 @@ local function main(standalone)
                     ftype = message.type,
                     side = "server",
                     id = message.id
-                }, protocol)
+                })
             end
         end
     end

@@ -3,9 +3,9 @@ local clientlib = {}
 
 clientlib.protocol = "SHREKSTORAGE"
 
+local network = require("libs.network")
+
 local hid, modem, hmn
-hid = sset.get(sset.hid)
-hmn = sset.get(sset.hmn)
 
 ---@type ssd.libs.slogger.Logger
 local logger = setmetatable({}, { __index = function() return function() end end })
@@ -97,13 +97,13 @@ local function sendAndRecieve(msg)
     local id = getUid()
     msg.id = id
     logger.fdebug("Sent request %d type=%s", id, msg.type)
-    rednet.send(hid, msg, clientlib.protocol)
+    network.send(hid, msg)
     local timeouts = 0
     local rounds = 0
     local gotAck = false
     while true do
         -- showThrobber(throbberTick, gotAck)
-        local sender, response = rednet.receive(clientlib.protocol, rednetTimeout)
+        local sender, response = network.receive(rednetTimeout)
         throbberTick = throbberTick + 1
         updateThrobberStatus(throbberTick)
         if sender == hid and type(response) == "table"
@@ -136,7 +136,7 @@ local function sendAndRecieve(msg)
             end
             timeouts = 0
             logger.fwarn("Resending request %d", id)
-            rednet.send(hid, msg, clientlib.protocol)
+            network.send(hid, msg)
         elseif timeouts > maxAckTimeouts and gotAck then
             gotAck = false
             -- TODO recognize server crashes?
@@ -227,7 +227,7 @@ function clientlib.listTasks()
 end
 
 function clientlib.rebootAll()
-    rednet.broadcast({ type = "rebootAll" }, clientlib.protocol)
+    network.broadcast({ type = "rebootAll" })
     os.reboot()
 end
 
@@ -380,16 +380,19 @@ function clientlib.ping()
 end
 
 function clientlib.open()
+    hid = sset.get(sset.hid)
+    hmn = sset.get(sset.hmn)
     modem = peripheral.find("modem", function(name, wrapped)
         return not wrapped.isWireless()
     end) --[[@as WiredModem]]
     clientlib.modem = modem
-    rednet.open(peripheral.getName(modem))
+    network.open(peripheral.getName(modem))
     clientlib.statusString = "Searching..."
     local serverAlive = false
     parallel.waitForAny(function()
         while not hid do
-            hid = rednet.lookup(clientlib.protocol)
+            logger.warn("No configured hid, searching for server...")
+            hid = network.lookup()
             serverAlive = hid ~= nil
         end
     end, function()
@@ -408,14 +411,16 @@ end
 ---@field start fun(l:CCItemInfo[],fragMap:FragMap)? Called when the server finishes starting
 ---@field tasks fun(l:TaskListInfo[])? Called when the s erver publishes a list of running tasks
 ---@field progress fun(stage:string,total:integer,scanned:integer,eta:number,etaStr:string)? Called while the server is starting with progress information
----@field peripherals fun(l:ssd.libs.registry.entry[])? Called when the s erver publishes a list of running tasks
+---@field peripherals fun(l:ssd.libs.registry.entry[])? Called when the s erver publishes a list of running tasks\
+---@field notifications fun(type:string,text:string)?
 
 local subscriptions = {
     changes = {},
     start = {},
     tasks = {},
     progress = {},
-    peripherals = {}
+    peripherals = {},
+    notifications = {}
 }
 
 ---Register a subscriber to various messages published by the server
@@ -435,6 +440,9 @@ function clientlib.subscribeTo(subs)
     end
     if subs.peripherals then
         subscriptions.peripherals[#subscriptions.peripherals + 1] = subs.peripherals
+    end
+    if subs.notifications then
+        subscriptions.notifications[#subscriptions.notifications + 1] = subs.notifications
     end
 end
 
@@ -460,6 +468,8 @@ local function processSubscriptions(msg)
         callAll(subscriptions.progress, msg.stage, msg.total, msg.scanned, msg.eta, msg.etaStr)
     elseif msg.type == "peripheralUpdate" then
         callAll(subscriptions.peripherals, msg.peripherals)
+    elseif msg.type == "notification" then
+        callAll(subscriptions.notifications, msg.ntype, msg.text)
     end
 end
 
@@ -467,7 +477,7 @@ end
 clientlib.run = function()
     parallel.waitForAny(tickThrobber, function()
         while true do
-            local sender, message = rednet.receive(clientlib.protocol)
+            local sender, message = network.receive()
             if type(message) == "table" then
                 if message.type == "rebootAll" then
                     os.reboot()

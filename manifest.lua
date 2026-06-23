@@ -7,6 +7,7 @@ return {
         "clientlib.lua",
         "Coordinates.lua",
         "ItemDescriptor.lua",
+        "network.lua",
         "registry.lua",
         ["shrekbox.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekbox.lua",
         ["shrekdraw.lua"] = "https://codeberg.org/ShreksHellraiser/shrekbox/raw/branch/ui/shrekdraw.lua",

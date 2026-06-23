@@ -44,6 +44,14 @@ Dropdown {
     text_color = yellow
 }
 
+#notification-progress {
+    text_color = orange
+}
+
+.notification {
+    fill_color = gray
+}
+
 Checkbox {
     fill_color:pressed = black
 }

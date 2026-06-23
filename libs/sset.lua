@@ -269,6 +269,11 @@ sset.termListingCategories = registerSetting("term:listingCategories",
 sset.requestScreenType = registerSetting("term:requestScreenType",
     "Whether to use the new key-chord based item request screen, or a simple count input box.", "string",
     "chord", true, "both", { "chord", "input" })
+sset.notificationTimeout = registerSetting("term:notificationTimeout",
+    "Time (ms) to show notifications before automatically dismissing them.",
+    "number", 15000, false, "both")
+sset.quitButton = registerSetting("term:quitButton", "Should the term show a quit button?", "boolean",
+    false, true, "both")
 
 sset.theme = registerSetting("ui:theme", [[
 Color theme to use for UIs as path to .lua theme file.
