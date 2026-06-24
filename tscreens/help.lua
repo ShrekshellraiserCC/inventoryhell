@@ -1,6 +1,8 @@
 _ENV = _ENV --[[@as SSDTermPluginENV]]
 
 local itemdescriptors_help_string = [[
+BEWARE ItemDescriptors are going to be redone at some point in the future. There will be datafixers to adapt old ones into new ones for recipes, but search and etc will change.
+
 ItemDescriptors are a string representation of complex item filters. Here is a list of valid ItemDescriptor selectors. Text between <> is descriptive, and should be replaced.
 
  !<statement> - Inverts the ItemDescriptor in statement

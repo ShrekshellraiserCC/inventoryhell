@@ -46,19 +46,22 @@ end
 
 local function item_select(self, item, idx)
     ---@cast self shrekui.Screen
-    _ENV.item = item
-    _ENV.item.detail = nil
-    _ENV.item.detail = generate_item_description(item)
-    _ENV.request_crafting = self:is_held(keys.leftCtrl)
-    _ENV.tapi.open_screen("listing:request")
+    cenv.item = item
+    cenv.item.detail = nil
+    cenv.item.detail = generate_item_description(item)
+    if (self:is_held(keys.leftCtrl) or item.count == 0) and item.craftable then
+        tapi.open_screen("listing:request_craft")
+    else
+        tapi.open_screen("listing:request")
+    end
 end
 
 
 local function toggle_craft_button(self)
-    _ENV.tapi.lock_inventory(_ENV.craft_active)
-    if not _ENV.craft_active then
-        _ENV.tapi.clear_locked_slots()
-        _ENV.tapi.lock_inventory(false)
+    tapi.lock_inventory(cenv.craft_active)
+    if not cenv.craft_active then
+        tapi.clear_locked_slots()
+        tapi.lock_inventory(false)
     end
 end
 
@@ -71,7 +74,7 @@ local category_id = ItemDescriptor.nop()
 local function apply_sort(filter)
     sort = {}
     local ok, id = false, nil
-    if _ENV.enable_item_descriptors then
+    if cenv.enable_item_descriptors then
         ok, id = pcall(ItemDescriptor.unserialize, filter)
     end
     local match
@@ -80,22 +83,22 @@ local function apply_sort(filter)
         match = function(v)
             return id:match(v)
         end
-        _ENV.search_state_color = "green"
+        cenv.search_state_color = "green"
     else
         match = function(v)
             return v.name:find(filter, nil, true)
         end
-        _ENV.search_state_color = "white"
+        cenv.search_state_color = "white"
     end
-    if _ENV.enable_item_descriptors and not ok then
-        _ENV.search_state_color = "red"
+    if cenv.enable_item_descriptors and not ok then
+        cenv.search_state_color = "red"
     end
     for i, v in ipairs(listing_raw) do
         if category_id:match(v) and match(v) then
             sort[#sort + 1] = v
         end
     end
-    _ENV.listing = sort
+    cenv.listing = sort
 end
 apply_sort("")
 local function search_change(self, value)
@@ -111,11 +114,11 @@ local function init(list, fragmap)
     has_init = true
 end
 
-_ENV.tapi.register_screen("listing:craft_overview", {
+tapi.register_screen("listing:craft_overview", {
     type = "Screen",
     content = {
-        _ENV.tapi.back_button_template(),
-        _ENV.tapi.header_template("Craft Request"),
+        tapi.back_button_template(),
+        tapi.header_template("Craft Request"),
         {
             type = "Text",
             y = 2,
@@ -138,8 +141,8 @@ _ENV.tapi.register_screen("listing:craft_overview", {
             x = "w/2+1",
             y = "h",
             on_click = function(self)
-                _ENV.capi.startCraft(cenv.cid)
-                _ENV.tapi.back()
+                capi.startCraft(cenv.cid)
+                tapi.back()
             end
         },
         {
@@ -153,8 +156,8 @@ _ENV.tapi.register_screen("listing:craft_overview", {
 }, nil, cenv)
 
 local function submit_craft_request(toCraft)
-    cenv.request_info_string = ("Requesting to craft %dx %s."):format(toCraft, _ENV.item.name)
-    local cid, required = capi.requestCraft(_ENV.item.name, toCraft)
+    cenv.request_info_string = ("Requesting to craft %dx %s."):format(toCraft, cenv.item.name)
+    local cid, required = capi.requestCraft(cenv.item.name, toCraft)
     if cid then
         cenv.cid = cid
         cenv.required_item_list = {}
@@ -164,20 +167,15 @@ local function submit_craft_request(toCraft)
                 count = v
             }
         end
-        _ENV.tapi.open_screen("listing:craft_overview")
+        tapi.open_screen("listing:craft_overview")
     end
 end
 
 local function submit_request(count)
-    if _ENV.request_crafting and _ENV.item.craftable then
-        tapi.back()
-        submit_craft_request(count)
-        return
-    end
-    tapi.request(_ENV.item, count)
+    tapi.request(cenv.item, count)
     tapi.back()
-    if _ENV.item.count < count and _ENV.item.craftable and _ENV.craft_excess then
-        local toCraft = count - _ENV.item.count
+    if cenv.item.count < count and cenv.item.craftable and cenv.craft_excess then
+        local toCraft = count - cenv.item.count
         submit_craft_request(toCraft)
     end
 end
@@ -193,24 +191,14 @@ local function submit_request_chord(self)
     submit_request(count)
 end
 
-local function submit_request_input(self)
-    local f = load("return " .. self.value, "input_count", "t", {
-        math = math
-    })
-    local ok, v = pcall(f)
-    if ok and type(v) == "number" then
-        submit_request(math.floor(v))
-    end
-end
+cenv.search_state_color = "white"
 
-_ENV.search_state_color = "white"
-
-_ENV.capi.subscribeTo({
+capi.subscribeTo({
     changes = function(l, fm)
         if not debug_ignore_listing_updates then
             listing_raw = l
         end
-        apply_sort(_ENV.search_bar)
+        apply_sort(cenv.search_bar)
         has_init = true
     end,
     start = init
@@ -236,17 +224,17 @@ local function listing_category_change(self, v, i)
     local id_str = listing_category_setting[i][2]
     local id = ItemDescriptor.unserialize(id_str)
     category_id = id
-    apply_sort(_ENV.search_bar)
+    apply_sort(cenv.search_bar)
 end
 
 local function use_id_change()
-    apply_sort(_ENV.search_bar)
+    apply_sort(cenv.search_bar)
 end
 
-_ENV.tapi.register_screen("listing:listing", {
+tapi.register_screen("listing:listing", {
     type = "Screen",
     content = {
-        _ENV.back_button_template(),
+        tapi.back_button_template(),
         {
             type = "Dropdown",
             x = 3,
@@ -388,7 +376,7 @@ _ENV.tapi.register_screen("listing:listing", {
     if not has_init then
         init(capi.list())
     end
-end)
+end, cenv)
 
 
 local request_screen_args = {
@@ -407,13 +395,6 @@ local request_screen_args = {
             vertical_alignment = "top",
             scrollbar = true,
             padding = 1
-        },
-        {
-            type = "Text",
-            y = "h-2",
-            x = "w-13",
-            text = "==CRAFTING==",
-            hidden = "$not request_crafting$"
         }
     }
 }
@@ -481,33 +462,109 @@ else -- input type
         type = "Frame",
         content = {
             {
-                x = 7,
-                w = "w-6",
                 type = "Input",
-                ignore_focus = true,
-                id = "item_count_input",
-                on_change = submit_request_input
+                y = "h",
+                id = "request-amount-input",
+                on_change = function(self)
+                    cenv.update_amount_calc(self)
+                    if cenv.valid_request_amount then
+                        submit_request(cenv.valid_request_amount)
+                    end
+                end,
+                ignore_focus = true
             },
             {
                 type = "Text",
-                w = 6,
-                text = "Count>"
+                y = "h-1",
+                h = 1,
+                horizontal_alignment = "left",
+                text = "$update_amount_calc(self)$"
             },
         },
-        x = 2,
         y = "h",
-        w = "w-1",
-        h = 1,
     }
     table.insert(request_screen_args.content, 1, frame)
 end
 
-
-_ENV.tapi.register_screen("listing:request", request_screen_args, function(self)
-    if sset.get(sset.requestScreenType) == "input" then
-        self:get_widget_by_id("item_count_input"):set_value(tostring(_ENV.item.maxCount))
+local logger = tapi.logger.logger("listing")
+cenv.request_amount_result = "64"
+cenv.valid_request_amount = nil
+local last_value
+function cenv.update_amount_calc(self)
+    ---@type shrekui.Input
+    local input = self:get_root():get_widget_by_id("request-amount-input")
+    local value = input:get_value()
+    if value == last_value then return cenv.request_amount_result end
+    last_value = value
+    local f, str = load("return ceil(" .. value .. ")", nil, "t", {
+        max = math.max,
+        min = math.min,
+        floor = math.floor,
+        ceil = math.ceil
+    })
+    cenv.valid_request_amount = nil
+    if not f then
+        cenv.request_amount_result = str
+    else
+        local ok, r = pcall(f)
+        cenv.request_amount_result = r or "nil"
+        if ok and type(r) == "number" then
+            cenv.valid_request_amount = r
+        end
     end
-end)
+    return cenv.request_amount_result
+end
+
+tapi.register_screen("listing:request_craft", {
+    type = "Screen",
+    content = {
+        tapi.header_template("Crafting"),
+        tapi.back_button_template(),
+        {
+            type = "Text",
+            x = 1,
+            y = 2,
+            w = "w",
+            h = "h-2",
+            text = "$item.detail$",
+            horizontal_alignment = "left",
+            vertical_alignment = "top",
+            scrollbar = true,
+            padding = 1
+        },
+        {
+            type = "Input",
+            y = "h",
+            id = "request-amount-input",
+            on_change = function(self)
+                cenv.update_amount_calc(self)
+                if cenv.valid_request_amount then
+                    tapi.back()
+                    submit_craft_request(cenv.valid_request_amount)
+                end
+            end,
+            ignore_focus = true
+        },
+        {
+            type = "Text",
+            y = "h-1",
+            h = 1,
+            horizontal_alignment = "left",
+            text = "$update_amount_calc(self)$",
+            class = "warning-button"
+        }
+    }
+}, function(self)
+    local input = self:get_root():get_widget_by_id("request-amount-input")
+    input:set_value(tostring(cenv.item.maxCount))
+end, cenv)
 
 
-_ENV.tapi.register_menu_button(1, "Listing", "listing:listing")
+tapi.register_screen("listing:request", request_screen_args, function(self)
+    if sset.get(sset.requestScreenType) == "input" then
+        self:get_widget_by_id("request-amount-input"):set_value(tostring(cenv.item.maxCount))
+    end
+end, cenv)
+
+
+tapi.register_menu_button(1, "Listing", "listing:listing")

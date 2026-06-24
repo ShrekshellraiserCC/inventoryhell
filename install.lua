@@ -167,7 +167,7 @@ fake_screen("SSD Installer",
 * A disk with the program files and global configuration
 * A computer configured as a host
 * Any number of computers/turtles configured as terminals
-* NYI* - Any number of crafting turtles
+* Any number of crafting turtles
 
 This program will install the necessary files to a directory of your choosing.
 ]], "Press [ Enter ] to continue.")
