@@ -887,7 +887,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         local output = {
             rmachine.invs[outputInfo[1]], outputInfo[2], outputInfo[3]
         }
-        logger.finfo("Allocated Machine %s %s", mtype, machine)
+        logger.finfo("Allocated Machine %s/%s", mtype, machine)
         return machine, slotlut, output
     end
 
@@ -896,7 +896,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     function this.craft.freeMachine(machine)
         local mtype = registeredMachines[machine].mtype
         local ptype = registeredMachines[machine].ptype
-        logger.fdebug("Freeing Machine %s (type %s)", machine, mtype)
+        logger.fdebug("Freeing Machine %s/%s", mtype, machine)
         local itype = ptype or mtype
         freeMachines[itype] = freeMachines[itype] or {}
         freeMachines[itype][machine] = true
@@ -1017,7 +1017,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         local m = { invs = invs, mtype = mtype, ptype = ptype, name = name }
         registeredMachines[name] = m
         registeredMachinesByType[mtype][name] = m
-        logger.fdebug("")
+        logger.fdebug("Registered machine %s/%s", mtype, name)
         machineRegisterTask(m)
     end
 
@@ -1035,7 +1035,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         end
         freeMachines[machine.mtype][name] = nil
         registeredMachines[name] = nil
-        logger.finfo("Deleted machine %s.", name)
+        logger.finfo("Deleted machine %s/%s.", machine.mtype, name)
         return true
     end
 

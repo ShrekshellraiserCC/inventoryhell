@@ -6,11 +6,49 @@ _ENV = _ENV
 local debug_ignore_listing_updates = false
 local cenv = {}
 
+local function generate_item_description(item)
+    local s = {}
+    s[#s + 1] = "Display Name: " .. item.displayName
+    s[#s + 1] = "Count: " .. item.count
+    s[#s + 1] = "Name: " .. item.name
+    if item.nbt then
+        s[#s + 1] = "NBT: " .. item.nbt
+    end
+    if item.durability then
+        s[#s + 1] = ("Durability: %.2f%%"):format(item.durability)
+    end
+    if item.potionEffects then
+        s[#s + 1] = "\nPotion:"
+        for k, v in ipairs(item.potionEffects) do
+            s[#s + 1] = "\7 " .. v.displayName or v.name
+        end
+    end
+    if item.enchantments then
+        s[#s + 1] = "\nEnchantments:"
+        for k, v in ipairs(item.enchantments) do
+            s[#s + 1] = "\7 " .. v.displayName or v.name
+        end
+    end
+    if item.tags then
+        s[#s + 1] = "\nTags:"
+        for k in pairs(item.tags) do
+            s[#s + 1] = "\7 " .. k
+        end
+    end
+    if item.itemGroups and #item.itemGroups > 0 then
+        s[#s + 1] = "\nItem Groups:"
+        for k, v in ipairs(item.itemGroups) do
+            s[#s + 1] = "\7 " .. v.displayName or v.name
+        end
+    end
+    return table.concat(s, "\n")
+end
+
 local function item_select(self, item, idx)
     ---@cast self shrekui.Screen
     _ENV.item = item
     _ENV.item.detail = nil
-    _ENV.item.detail = textutils.serialize(item)
+    _ENV.item.detail = generate_item_description(item)
     _ENV.request_crafting = self:is_held(keys.leftCtrl)
     _ENV.tapi.open_screen("listing:request")
 end
@@ -362,28 +400,13 @@ local request_screen_args = {
             type = "Text",
             x = 1,
             y = 2,
-            h = 1,
-            w = "w-8",
-            text = "$item.displayName$",
-            horizontal_alignment = "left"
-        },
-        {
-            type = "Text",
-            x = "w-7",
-            y = 2,
-            h = 1,
-            w = "8",
-            text = "$item.count$"
-        },
-        {
-            type = "Text",
-            x = 1,
-            y = 3,
             w = "w",
-            h = "h-3",
+            h = "h-2",
             text = "$item.detail$",
             horizontal_alignment = "left",
-            scrollbar = true
+            vertical_alignment = "top",
+            scrollbar = true,
+            padding = 1
         },
         {
             type = "Text",

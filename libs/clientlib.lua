@@ -68,7 +68,15 @@ local function updateStatusString()
     elseif serverState == serverStates.UNKNOWN then
         s = "UNKNOWN"
     end
-    clientlib.statusString = (s .. throbberState):sub(-clientlib.statusWidth)
+    clientlib.statusString = s
+end
+
+function clientlib.getStatus()
+    return {
+        state = serverState,
+        throbber = throbberState,
+        string = clientlib.statusString
+    }
 end
 
 ---Show an activity throbber in the corner
@@ -233,11 +241,15 @@ end
 
 function clientlib.forceRebootServer()
     if hmn then
-        local c = peripheral.wrap(hmn)
+        local c = peripheral.wrap(hmn) --[[@as ccTweaked.peripherals.Computer]]
         if not c then
             error(("Could not force reboot the server, peripheral %s does not exist."):format(hmn))
         end
-        c.reboot()
+        if not c.isOn() then
+            c.turnOn()
+        else
+            c.reboot()
+        end
         serverState = serverStates.UNKNOWN
     else
         error("Cannot call forceRebootServer without knowing the server's attachment name.")

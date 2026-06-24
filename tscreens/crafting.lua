@@ -838,13 +838,7 @@ end
 _ENV.tapi.register_screen("crafting:new_recipe_grid", {
     type = "Screen",
     content = {
-        _ENV.tapi.back_button_template {
-            on_click = function(self)
-                tapi.lock_inventory(false)
-                tapi.clear_locked_slots()
-                tapi.back()
-            end
-        },
+        _ENV.tapi.back_button_template(),
         _ENV.tapi.header_template("Grid Setup"),
         {
             type = "Text",
@@ -858,11 +852,7 @@ _ENV.tapi.register_screen("crafting:new_recipe_grid", {
             y = "h",
             w = "w/2",
             text = "Cancel",
-            on_click = function()
-                tapi.lock_inventory(false)
-                tapi.clear_locked_slots()
-                tapi.back()
-            end
+            on_click = tapi.back
         },
         {
             type = "Button",
@@ -879,7 +869,6 @@ _ENV.tapi.register_screen("crafting:new_recipe_grid", {
                     return
                 end
                 local info = turtle.getItemDetail() --[[@as CCItemInfo]]
-                tapi.lock_inventory(false)
                 tapi.clear_locked_slots()
                 add_grid_recipe_from_turtle_inv(listing, info)
                 tapi.back()
@@ -888,9 +877,7 @@ _ENV.tapi.register_screen("crafting:new_recipe_grid", {
             end
         }
     }
-}, function()
-    tapi.lock_inventory(true) -- need to unlock inventory upon leaving
-end, cenv)
+}, nil, cenv)
 
 _ENV.tapi.register_screen("crafting:new_recipe", {
     type = "Screen",
@@ -1278,7 +1265,12 @@ _ENV.tapi.register_screen("crafting:menu", {
             text = "Crafting",
             class = "heading"
         },
-        _ENV.tapi.back_button_template(),
+        _ENV.tapi.back_button_template {
+            on_click = function(self)
+                tapi.lock_inventory(false)
+                tapi.back()
+            end
+        },
         {
             type = "Button",
             text = "Machines",
@@ -1298,5 +1290,7 @@ _ENV.tapi.register_screen("crafting:menu", {
             end
         }
     }
-}, nil, cenv)
+}, function()
+    tapi.lock_inventory(true)
+end, cenv)
 _ENV.tapi.register_menu_button(1, "Crafting", "crafting:menu")

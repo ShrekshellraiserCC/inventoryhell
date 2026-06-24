@@ -306,18 +306,71 @@ local function register_screen_raw(name, screen, callback)
     return screen
 end
 
+local status_str_lookup = {
+    UNKNOWN = "???",
+    MISSING = "gone...",
+    CONNECTED = "OK"
+}
+
+function tapi.get_status_string()
+    local info = env.capi.getStatus()
+    local infostr = status_str_lookup[info.state] or info.string
+    local arrow = env.status_dropdown and "\x1e" or "\x1f"
+    if info.state == "STARTING" then
+        return info.string .. arrow
+    end
+    local etc = expectingItems and "L" or " "
+    return ("%s [%s]%s%s"):format(infostr, etc, info.throbber, arrow)
+end
+
+env.status_dropdown = false
 local apply_screen_template
 do
     local status_text = {
-        type = "Text",
+        type = "Button",
         x = "w+1-" .. env.capi.statusWidth,
         y = 1,
         w = env.capi.statusWidth,
         h = 1,
         z = 1,
         class = "heading",
+        id = "status-dropdown-button",
         horizontal_alignment = "right",
-        text = "$capi.statusString$"
+        text = "$tapi.get_status_string()$",
+        on_click = function(self)
+            env.status_dropdown = not env.status_dropdown
+        end,
+        toggle = true
+    }
+    local status_dropdown = {
+        type = "Frame",
+        x = "w+1-" .. env.capi.statusWidth,
+        y = 2,
+        h = 5,
+        border_thickness = 1,
+        z = 15,
+        lz_offset = 100,
+        content = {
+            {
+                type = "Checkbox",
+                text = "Lock Import",
+                h = 1,
+                id = "lock-import-checkbox",
+                on_click = function(self)
+                    tapi.lock_inventory(not expectingItems)
+                end
+            },
+            {
+                type = "Button",
+                text = "Clear Import",
+                h = 1,
+                y = 2,
+                on_click = function(self)
+                    tapi.clear_locked_slots()
+                end
+            }
+        },
+        hidden = "$not status_dropdown$"
     }
     local heading_fill = {
         type = "Text",
@@ -381,6 +434,7 @@ do
     }
     function apply_screen_template(content)
         content[#content + 1] = status_text
+        content[#content + 1] = status_dropdown
         content[#content + 1] = heading_fill
         content[#content + 1] = notification_frame
     end
@@ -393,7 +447,15 @@ end
 ---@see SSDTermAPI
 local function register_screen(name, layout, callback, penv)
     apply_screen_template(layout.content)
-    local senv = penv and setmetatable(penv, { __index = env }) or env
+    local senv = penv and setmetatable(penv, {
+        __index = env,
+        __newindex = function(t, k, v)
+            if env[k] ~= nil then
+                env[k] = v
+            end
+            rawset(penv, k, v)
+        end
+    }) or env
     local screen = ui.load_screen(layout, senv)
     return register_screen_raw(name, screen, callback)
 end
@@ -555,6 +617,17 @@ do
     end
 end
 
+local function update_button_status(screen)
+    local status = screen:get_widget_by_id("status-dropdown-button")
+    if status then
+        status:set_pressed(env.status_dropdown)
+    end
+    local lock_import = screen:get_widget_by_id("lock-import-checkbox")
+    if lock_import then
+        lock_import:set_pressed(expectingItems)
+    end
+end
+
 ---@type shrekui.Screen
 local current_screen
 ---@type shrekui.Screen[]
@@ -566,6 +639,7 @@ function tapi.open_screen(name)
     screen_stack[#screen_stack + 1] = current_screen.meta
     current_screen = screens[name]
     assert(current_screen, ("No screen with ID %s"):format(name))
+    update_button_status(current_screen)
     if screenCallbacks[name] then
         screenCallbacks[name](current_screen)
     end
@@ -576,6 +650,7 @@ function tapi.back()
     local top = table.remove(screen_stack)
     if top then
         current_screen = screens[top]
+        update_button_status(current_screen)
     end
 end
 

@@ -122,6 +122,7 @@ local function sanitize_listing(l)
 end
 
 ---Display a list of the term's inventory. Allow the user to pick out an item descriptor based off the item.
+---Locks the inventory when opened, but does not unlock it.
 ---@param callback fun(ID:string)
 function _ENV.utils.item_picker(callback)
     -- Disable inventory importing
@@ -141,13 +142,7 @@ end
 _ENV.tapi.register_screen("utils:item_picker", {
     type = "Screen",
     content = {
-        _ENV.tapi.back_button_template {
-            on_click = function(self)
-                tapi.lock_inventory(false)
-                tapi.clear_locked_slots()
-                tapi.back()
-            end
-        },
+        _ENV.tapi.back_button_template(),
         _ENV.tapi.header_template("Item Picker"),
         {
             type = "Frame",
