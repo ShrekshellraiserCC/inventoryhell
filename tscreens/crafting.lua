@@ -1004,6 +1004,15 @@ local function remove_recipe_item(index)
     refresh_editing_recipe()
 end
 
+local function set_selected_item_item_descriptor(v)
+    local ok, id = pcall(ItemDescriptor.unserialize, v)
+    if not (ok and id) then return end
+    if cenv.selected_item_slot then
+        cenv.editing_recipe.items[cenv.selected_item_slot] = v
+        refresh_editing_recipe()
+    end
+end
+
 _ENV.tapi.register_screen("crafting:edit_recipe", {
     type = "Screen",
     content = {
@@ -1056,12 +1065,7 @@ _ENV.tapi.register_screen("crafting:edit_recipe", {
                     w = "w-1",
                     id = "itemdescriptor-input",
                     on_change = function(self, v)
-                        local ok, id = pcall(ItemDescriptor.unserialize, v)
-                        if not (ok and id) then return end
-                        if cenv.selected_item_slot then
-                            cenv.editing_recipe.items[cenv.selected_item_slot] = v
-                            refresh_editing_recipe()
-                        end
+                        set_selected_item_item_descriptor(v)
                     end
                 },
                 {
@@ -1074,6 +1078,7 @@ _ENV.tapi.register_screen("crafting:edit_recipe", {
                         local item_input = self:get_root():get_widget_by_id("itemdescriptor-input")
                         utils.item_picker(function(ID)
                             item_input:set_value(ID)
+                            set_selected_item_item_descriptor(ID)
                         end)
                     end
                 },

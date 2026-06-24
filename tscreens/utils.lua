@@ -195,8 +195,6 @@ _ENV.tapi.register_screen("utils:item_picker", {
                     text = "Submit",
                     on_click = function()
                         cenv.picker_callback(cenv.id_input)
-                        tapi.lock_inventory(false)
-                        tapi.clear_locked_slots()
                         tapi.back()
                     end
                 }
