@@ -22,6 +22,7 @@
 ---@field reserve Reserve?
 ---@field funcs TaskFunction[]
 ---@field subtasks Task[]
+---@field depends Task[]
 ---@field priority number?
 ---@field callback TaskCallback?
 ---@field width integer
@@ -102,12 +103,23 @@ function Task__index:addSubtask(t)
     return self
 end
 
+---Make this task wait for an independent other task to complete.
+---@param t Task
+---@return self
+function Task__index:dependsOn(t)
+    self.depends[#self.depends + 1] = t
+    return self
+end
+
 ---Get a list of all dependencies this task has, by ID
 ---@return TaskID[]
 function Task__index:_getDependencyIDs()
     local ids = {}
     for i, v in ipairs(self.subtasks) do
         ids[i] = v.id
+    end
+    for i, v in ipairs(self.depends) do
+        ids[#ids + 1] = v.id
     end
     return ids
 end
@@ -148,6 +160,7 @@ function Task.new(funcs, name, critical)
     lastid = lastid + 1
     self.funcs = funcs
     self.width = #funcs
+    self.depends = {}
     return self
 end
 
@@ -163,7 +176,7 @@ local function removeIndiciesFromTable(idx, tab)
     end
 end
 
-local TASK_LIMIT = 128
+local TASK_LIMIT = 64
 ---@param logger ssd.libs.slogger.Logger
 local function Scheduler(logger)
     ---@type TaskThreadDescriptor[]
@@ -173,6 +186,8 @@ local function Scheduler(logger)
     ---Number of threads with a given TaskID, decrement when threads die
     ---@type table<TaskID,number>
     local taskThreadCounts = {}
+    ---@type table<TaskID,boolean>
+    local seenTasks = {}
     ---@type table<TaskID,number>
     local taskThreadWidth = {}
     ---@type table<TaskID,Task>
@@ -197,9 +212,9 @@ local function Scheduler(logger)
 
     ---Queue a task's subtasks to be ran
     ---@param t Task
-    local function queueSubtasks(t)
+    local function queueSubtasks(t, _level)
         for _, v in ipairs(t.subtasks) do
-            run.queueTask(v)
+            run.queueTask(v, _level)
         end
     end
 
@@ -209,8 +224,9 @@ local function Scheduler(logger)
 
     ---Queue a task to be ran
     ---@param t Task
-    function run.queueTask(t)
-        queueSubtasks(t)
+    function run.queueTask(t, _level)
+        _level = _level or 0
+        queueSubtasks(t, _level + 1)
         allTasks[t.id] = t
         runningTasks[t.id] = false
         if changedCallback then
@@ -218,6 +234,8 @@ local function Scheduler(logger)
         end
         taskThreadWidth[t.id] = t.width
         local threads = t:_getThreads()
+        logger.ftrace("(%d)%s run.queueTask- '%s'(%d) depends %s",
+            _level, (" "):rep(_level), t.name or "", t.id, textutils.serialise(threads[1].depends, { compact = true }))
         for _, v in ipairs(threads) do
             queue(v)
         end
@@ -229,6 +247,9 @@ local function Scheduler(logger)
     ---@return boolean
     local function areDependsMet(t)
         for i, v in ipairs(t.depends) do
+            if not seenTasks[v] then
+                return false
+            end
             if taskThreadCounts[v] and taskThreadCounts[v] ~= 0 then
                 return false
             end
@@ -326,8 +347,10 @@ local function Scheduler(logger)
                 break
             end
             if areDependsMet(v) and taskCount + taskThreadWidth[v.id] < TASK_LIMIT then
+                logger.ftrace("Activating task '%s' (%d).", v.name or "nil", v.id)
                 taskCount = taskCount + makeTaskActive(v)
                 toAdd[#toAdd + 1] = i
+                seenTasks[v.id] = true
             end
         end
         removeIndiciesFromTable(toAdd, queuedThreads)

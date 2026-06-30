@@ -187,7 +187,8 @@ end
 ---@param name string
 ---@param count integer
 ---@return integer? cid
----@return table<string,integer> required
+---@return table<string,integer> used
+---@return table<string,integer> crafted
 function clientlib.requestCraft(name, count)
     return sendAndRecieve({ type = "requestCraft", name = name, count = count })
 end
@@ -195,6 +196,10 @@ end
 ---@param cid integer
 function clientlib.startCraft(cid)
     return sendAndRecieve({ type = "startCraft", cid = cid })
+end
+
+function clientlib.coredump()
+    return sendAndRecieve({ type = "coredump" })
 end
 
 ---Push items into some inventory

@@ -13,6 +13,7 @@ local ID = require "libs.ItemDescriptor"
 local slogger = require "libs.slogger"
 
 local logger = slogger.new("CLIENT", "clientlog.txt")
+logger.setFilter(slogger.levels[sset.get(sset.logLevel)])
 local clog = logger.logger("clib")
 
 for i, v in ipairs(args) do
@@ -494,7 +495,7 @@ register_screen("debug", {
             type = "Button",
             y = "h",
             on_click = function()
-                tapi.notification("john", "This is a notification...")
+                env.capi.coredump()
             end
         }
     }

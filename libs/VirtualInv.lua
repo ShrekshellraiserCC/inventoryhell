@@ -260,9 +260,10 @@ function Reserve__index:pushItems(to, item, limit, toSlot)
     shrexpect({ "string", "ItemDescriptor", "number?", "number?" }, { to, item, limit, toSlot })
     local matches = searchForItems(item, self.items)
     local moved = 0
+    limit = limit or math.huge
     for _, virtSlot in ipairs(matches) do
-        moved = moved + self.parent:_pushItems(self, to, virtSlot, limit, toSlot)
-        if moved == limit then
+        moved = moved + self.parent:_pushItems(self, to, virtSlot, limit - moved, toSlot)
+        if moved >= limit then
             break
         end
     end
@@ -456,6 +457,7 @@ end
 ---@param expected integer
 ---@return TransactionInfo
 function VirtualInv__index:_startTransaction(realCoord, itemCoord, r, expected)
+    self._logger.ftrace("_startTransaction(%s,%s,_,%d)", realCoord, itemCoord, expected)
     local virtItem = r.items[itemCoord]
     local virtCoord = virtItem.slot
     local virtCount = virtItem.count
@@ -480,6 +482,7 @@ end
 function VirtualInv__index:_endTransaction(trans, moved)
     local r, realCoord, itemCoord, expected, virtCoord = trans.r,
         trans.invCoord, trans.itemCoord, trans.expected, trans.virtCoord
+    self._logger.ftrace("_endTransaction([%s,%s],%d)", realCoord, itemCoord, moved)
     local virtItem = r.items[itemCoord]
     local virtCount = (virtItem and virtItem.count) or 0
     local realItem = self.realItems[itemCoord]
@@ -505,6 +508,7 @@ end
 function VirtualInv__index:_pushItems(r, toInv, itemCoord, limit, toSlot)
     shrexpect({ "Reserve|VirtualInv", "string", "string", "number?", "number?" }, { r, toInv, itemCoord, limit, toSlot })
     local virtItem = r.items[itemCoord]
+    self._logger.ftrace("_pushItems(%s, %s, %s, %s, %s)", r, toInv, itemCoord, limit, toSlot)
     -- local itemCoord = coordLib.ItemCoordinate(virtItem.name, virtItem.nbt)
     local realItem = self.realItems[itemCoord]
     limit = math.min(limit or realItem.maxCount, virtItem.count)
@@ -519,6 +523,7 @@ function VirtualInv__index:_pushItems(r, toInv, itemCoord, limit, toSlot)
             invCoord, slotCount = next(realItem.fullSlots)
             if not invCoord then
                 self:_checkEmpty(itemCoord)
+                self._logger.ftrace("_pushItems ran out of %s.", itemCoord)
                 break
             end
         end
@@ -529,6 +534,7 @@ function VirtualInv__index:_pushItems(r, toInv, itemCoord, limit, toSlot)
         local actuallyMoved = invCall(fromInv, "pushItems", toInv, fromSlot, expectedToMove, toSlot)
         moved = moved + actuallyMoved
         self:_endTransaction(transaction, -actuallyMoved)
+        self._logger.ftrace("_pushItems moved %d/%d", actuallyMoved, expectedToMove)
         if actuallyMoved == 0 then
             break
         elseif moved == limit then
@@ -536,6 +542,7 @@ function VirtualInv__index:_pushItems(r, toInv, itemCoord, limit, toSlot)
         end
     end
     self:_callChangedCallback()
+    self._logger.ftrace("_pushItems -> %d", moved)
     return moved
 end
 
@@ -554,19 +561,23 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
     local emptyCoord = self.ess.allocate()
     local emptyInv, emptySlot = coordLib.splitInventoryCoordinate(emptyCoord)
     local moved = invCall(emptyInv, "pullItems", fromInv, fromSlot, limit, emptySlot)
+    self._logger.ftrace("_pullItems(%s, %s, %s, %s)", r, fromInv, fromSlot, limit)
     if moved == 0 then
         self.ess.free(emptyCoord)
+        self._logger.trace("_pullItems -> 0")
         return 0, ""
     end
     local info = invGetItemDetail(emptyInv, emptySlot)
     if info == nil then
         -- TODO handle corruptions.
+        self._logger.ferror("Scanning coord %s resulted in nothing after moving %d items.", emptyCoord, moved)
         error(("Scanning coord %s resulted in nothing after moving %d items."):format(emptyCoord, moved))
     end
     local itemCoord = coordLib.ItemCoordinate(info.name, info.nbt)
     detailedDataCache[itemCoord] = detailedDataCache[itemCoord] or clone(info)
     if moved == info.maxCount then
         self:_setSlot(emptyCoord, itemCoord, moved)
+        self._logger.trace("_pullItems moved entire stack!")
     else
         -- merge with partSlot
         local ritem = self.realItems[itemCoord]
@@ -574,12 +585,14 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
         if not toCoord then
             -- No partSlot exists, just leave this in place
             self:_setSlot(emptyCoord, itemCoord, moved)
+            self._logger.trace("_pullItems produced a new partSlot.")
         else
             local toInv, toSlot = coordLib.splitInventoryCoordinate(toCoord)
             local mergeMoved = invCall(emptyInv, "pushItems", toInv, emptySlot, moved, toSlot)
             self:_setSlot(emptyCoord, itemCoord, moved - mergeMoved)
             local toCount = ritem.partSlots[toCoord] or 0
             self:_setSlot(toCoord, itemCoord, toCount + mergeMoved)
+            self._logger.trace("_pullItems merged partSlots.")
         end
     end
     if r ~= self then
@@ -592,6 +605,7 @@ function VirtualInv__index:_pullItems(r, fromInv, fromSlot, limit)
         end
     end
     self:_callChangedCallback()
+    self._logger.ftrace("_pullItems -> %d x %s", moved, itemCoord)
     return moved, itemCoord
 end
 
@@ -903,14 +917,117 @@ function VirtualInv__index:_freeScanLock(inv)
     end
 end
 
+local alphabet = {}
+for i = 1, 26 do
+    alphabet[i] = string.char(string.byte("a") + i - 1)
+end
+
+function VirtualInv__index:validate()
+    self._logger.info("Validating inventory cache...")
+    local valid = true
+    local currentListings = {}
+    ---@type table<string,boolean>
+    local inventories = {}
+    ---@type [string,number,InventoryCoordinate][]
+    local splitCoords = {}
+    for _, coord in ipairs(self.realSlotList) do
+        local inv, slot = coordLib.splitInventoryCoordinate(coord)
+        inventories[inv] = true
+        splitCoords[#splitCoords + 1] = { inv, slot, coord }
+    end
+    -- Intentionally lock down all inventories. Nothing happens while this scan is happening.
+    for k in pairs(inventories) do
+        self:_setScanLock(k)
+        currentListings[k] = invCall(k, "list")
+    end
+    local itemCounts = {}
+    for _, data in ipairs(splitCoords) do
+        local inv, slot, coord = data[1], data[2], data[3]
+        local item = currentListings[inv][slot]
+        if item == nil then
+            -- validate this slot is actually marked as empty
+            if self.realItemLUT[coord] then
+                self._logger.ferror("%s is empty, but self.realItemLUT contains %s.", coord, self.realItemLUT[coord])
+                valid = false
+            end
+            if not self.ess.slots[coord] then
+                self._logger.ferror("%s is empty, but is not in ess.", coord)
+                valid = false
+            end
+        else
+            -- validate this slot contains the item it actually does.
+            local itemCoord = coordLib.ItemCoordinate(item.name, item.nbt)
+            if self.realItemLUT[coord] ~= itemCoord then
+                self._logger.ferror("self.realItemLUT[%s]=%s, should be %s.", coord, self.realItemLUT[coord], itemCoord)
+                valid = false
+            end
+            if self.ess.slots[coord] then
+                self._logger.ferror("%s is NOT empty, but is in ess.", coord)
+                valid = false
+            end
+            itemCounts[itemCoord] = (itemCounts[itemCoord] or 0) + item.count
+        end
+    end
+
+    for coord, vslots in pairs(self.virtSlotByItem) do
+        local count = 0
+        for icoord, vitem in pairs(vslots) do
+            count = count + vitem.count
+        end
+        if count ~= itemCounts[coord] then
+            self._logger.ferror("VirtualSlots contain %d of %s, there is actually %d.", count, coord,
+                itemCounts[coord] or 0)
+            valid = false
+        end
+    end
+
+    -- Free the previously locked inventories
+    for k in pairs(inventories) do
+        self:_freeScanLock(k)
+    end
+
+    if not valid then
+        local f = fs.open("dump.txt", "w")
+        if f then
+            f.write(self:toString())
+            f.close()
+        end
+        self._logger.ferror("Dumped inventory to disk.")
+    else
+        self._logger.info("Validated caches successfully.")
+    end
+end
+
 ---Get a string representation of the status of this VirtualInventory
 ---@return string
 function VirtualInv__index:toString()
-    local s = "realItems = " .. textutils.serialise(self.realItems)
-    s = s .. "\n\n\nvirtSlots = " .. textutils.serialise(self.virtSlots)
-    s = s .. "\n\n\nitems = " .. Reserve__index.toString(self)
-    s = s .. "\n\n\nrealSlotList = " .. textutils.serialise(self.realSlotList)
-    return s
+    local s = {}
+    s[#s + 1] = "[realItems]"
+    local lut = { [0] = "_" }
+    local idx = 0
+    for k, v in pairs(self.realItems) do
+        idx = idx + 1
+        lut[k] = alphabet[idx]
+        s[#s + 1] = ("%s) %s"):format(alphabet[idx], k)
+    end
+    s[#s + 1] = "\n\n[realSlotList]"
+    local line = ""
+    local invName
+    for i, v in ipairs(self.realSlotList) do
+        local inv, slot = coordLib.splitInventoryCoordinate(v)
+        if inv ~= invName then
+            invName = inv
+            s[#s + 1] = line
+            s[#s + 1] = invName
+            line = ""
+        end
+        line = line .. (lut[self.realItemLUT[v] or 0] or "?")
+        if slot % 9 == 0 then
+            s[#s + 1] = line
+            line = ""
+        end
+    end
+    return table.concat(s, "\n")
 end
 
 ---Get the display name of an item based off it's name
@@ -1017,6 +1134,7 @@ function VirtualInv__index:executeScan(tracker)
     slotExecutor:execute()
     t1 = os.epoch("utc")
     self._logger.finfo("Done [%.2fs]", (t1 - t0) / 1000)
+    self:validate()
 end
 
 ---Scan all slots this VirtualInv covers

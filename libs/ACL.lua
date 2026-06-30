@@ -7,6 +7,7 @@ local coordLib       = require("libs.Coordinates")
 local shrexpect      = require("libs.shrexpect")
 local sset           = require("libs.sset")
 local Coordinates    = require("libs.Coordinates")
+local tnet           = require("libs.tnet")
 
 local TaskLib        = require("libs.STL")
 
@@ -52,11 +53,11 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     this.reserve = invReserve
     invReserve:defrag()
 
-    local turtlePort = 7777
     wmodem = wmodem or peripheral.find("modem", function(name, wrapped)
         return not wrapped.isWireless()
-    end) --[[@as Modem]]
-    wmodem.open(turtlePort)
+    end) --[[@as WiredModem]]
+    tnet.logger(provider.logger("TNET"))
+    tnet.open(wmodem)
 
     ---@type table<string,boolean>
     local freeTurtles = {}
@@ -65,21 +66,18 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     ---@type table<string,boolean>
     local busyTurtles = {}
     function this.searchForTurtles()
-        wmodem.transmit(turtlePort, turtlePort, { "GET_NAME" })
+        tnet.host.lookup()
         local tid = os.startTimer(0.5)
         ---@type table<string,boolean>
         local foundTurtles = {}
         while true do
-            local e, side, channel, replyChannel, message = os.pullEvent()
-            if e == "modem_message" then
-                if type(message) == "table" and message[1] == "NAME" then
-                    foundTurtles[message[2]] = true
-                    os.cancelTimer(tid)
-                    tid = os.startTimer(0.5)
-                end
-            elseif e == "timer" and side == tid then
+            local message = tnet.host.receive("NAME", nil, tid)
+            if not message then
                 break
             end
+            foundTurtles[message[2]] = true
+            os.cancelTimer(tid)
+            tid = os.startTimer(0.5)
         end
         local foundNew = false
         for k in pairs(foundTurtles) do
@@ -111,7 +109,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
             os.pullEvent("turtle_freed")
             return allocateTurtle()
         end
-        logger.finfo("Allocated turtle %s", turt)
+        logger.fdebug("Allocated turtle %s", turt)
         freeTurtles[turt] = nil
         busyTurtles[turt] = true
         return turt
@@ -121,7 +119,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         freeTurtles[turt] = true
         busyTurtles[turt] = nil
         os.queueEvent("turtle_freed")
-        logger.finfo("Freed turtle %s", turt)
+        logger.fdebug("Freed turtle %s", turt)
     end
 
     ---@class QueableTask : Task
@@ -165,8 +163,18 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
                 if type(to) == "function" then
                     to = to()
                 end
-                local moved = (self.reserve or this.reserve):pushItems(to, item, limit, slot)
-                return moved
+                local toMove = limit
+                local total = 0
+                while toMove > 0 do
+                    local moved = (self.reserve or this.reserve):pushItems(to, item, math.min(limit, toMove), slot)
+                    total = total + moved
+                    toMove = toMove - moved
+                    if moved == 0 then
+                        error("distributeToSlots task moved 0?")
+                    end
+                end
+                logger.ftrace("distributeToSlots task moved %d/%d", total, limit)
+                return total
             end
         end
         return self
@@ -231,16 +239,16 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     ---@param slotB integer
     ---@param limit integer?
     function PullTask__index:fromRange(from, slotA, slotB, limit)
-        for i = slotA, slotB do
-            local f = function()
-                local r = self.reserve or invReserve
-                if type(from) == "function" then
-                    from = from()
-                end
-                return r:pullItems(from, i)
+        local f = function()
+            local r = self.reserve or invReserve
+            if type(from) == "function" then
+                from = from()
             end
-            self.funcs[#self.funcs + 1] = f
+            for i = slotA, slotB do
+                r:pullItems(from, i)
+            end
         end
+        self.funcs[#self.funcs + 1] = f
         return self
     end
 
@@ -678,59 +686,140 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         return registeredMachineTypes[mtype]
     end
 
-    ---@param recipe RegisteredRecipe
-    ---@param count integer
-    ---@param jobItemCounts table<string,integer>
-    ---@return MachineCraftTask|TurtleCraftTask?
-    ---@return table<string,integer> jobItemCounts
-    local function tryCraft(recipe, count, jobItemCounts)
-        -- TODO auto split count into multiple crafts
-        --  * For example, I ask for 128 furnaces, split it into two 64 furnace craft tasks.
-        --  * For furnaces, this depends on the fuel used, but for coal split 64 glass into 8 glass per furnace
-        --    Make this behavior optional, per machine type. Choose to prioritize distribution versus centralization.
-        ---@type MachineCraftTask|TurtleCraftTask
-        local task, craftCount
-        if recipe.type == "grid" then
-            task = this.craft.grid(recipe.items, recipe.recipe, math.ceil(count / recipe.produces))
-            craftCount = math.ceil(count / recipe.produces)
-        else
-            task, craftCount = this.craft.generic(count)
-                :reserveMachine(recipe.type)
-                :setRecipe(recipe.items, recipe.recipe, recipe.produces, recipe.product)
-                :build()
-        end
-        jobItemCounts = jobItemCounts or {}
+    local function craftRequiredItems(recipe, craftCount, usedItemCounts, craftedItemCounts)
         local taskItemCounts = {}
         for _, item in pairs(recipe.recipe) do
             if type(item) == "number" then
                 local id = recipe.items[item]:serialize()
-                jobItemCounts[id] = (jobItemCounts[id] or 0) + 1 * craftCount
                 taskItemCounts[id] = (taskItemCounts[id] or 0) + 1 * craftCount
             else
                 local id = recipe.items[item[1]]:serialize()
-                jobItemCounts[id] = (jobItemCounts[id] or 0) + item[2] * craftCount
                 taskItemCounts[id] = (taskItemCounts[id] or 0) + item[2] * craftCount
             end
         end
         local craftSubtasks = {}
         for sid, need in pairs(taskItemCounts) do
             local id = ItemDescriptor.unserialize(sid)
-            local have = this.reserve:getCount(id) - (jobItemCounts[sid] - taskItemCounts[sid])
-            if have < need then
-                local task, newJobItemCounts = this.craft.craft(id, need - have, jobItemCounts)
+            local have = this.reserve:getCount(id) - (usedItemCounts[sid] or 0)
+            local toCraft = need - have
+            local consumed = math.min(have, need)
+            usedItemCounts[sid] = (usedItemCounts[sid] or 0) + consumed
+            logger.fdebug("Using %d of %s from storage to craft %s.", consumed, sid, recipe.product)
+            if toCraft > 0 then
+                local task, newUsedItemCounts, newCraftedItemCounts = this.craft.craft(id, toCraft, usedItemCounts,
+                    craftedItemCounts)
                 if not task then
                     -- There's not enough items in this inventory to satisfy this!
-                    return nil, jobItemCounts
+                    logger.fwarn("Not enough %s available to craft %s!", sid, recipe.product)
+                    return nil, usedItemCounts, craftedItemCounts
                 end
                 craftSubtasks[#craftSubtasks + 1] = task
-                newJobItemCounts[sid] = newJobItemCounts[sid] - (have - need)
-                jobItemCounts = newJobItemCounts
+                usedItemCounts = newUsedItemCounts
+                craftedItemCounts = newCraftedItemCounts
             end
         end
+        local task = TaskLib.Task.new({ function()
+            logger.fdebug("Finished crafting ingredients for %d of %s.", craftCount * recipe.produces, recipe.product)
+        end }, "IngredientCraft")
         for _, stask in ipairs(craftSubtasks) do
             task:addSubtask(stask)
         end
-        return task, jobItemCounts
+        return task, usedItemCounts, craftedItemCounts
+    end
+
+    ---@param t Task
+    ---@return Task
+    local function getRootTask(t)
+        assert(#t.subtasks <= 1, "Too many subtasks to get root of task.")
+        if #t.subtasks == 0 then
+            return t
+        end
+        return getRootTask(t.subtasks[1])
+    end
+
+    ---@param recipe RegisteredRecipe
+    local function splitCraft(recipe, count, usedItemCounts, craftedItemCounts)
+        ---@type MachineSplitType
+        local splitType = "NONE"
+        ---@type MachineCraftTask[]
+        local tasks = {}
+        local slotCount
+        if recipe.type == "grid" then
+            splitType = "SLOTS"
+            slotCount = 16
+        end
+        local limit = count
+        if splitType == "SLOTS" then
+            if recipe.type ~= "grid" then
+                local machineType = registeredMachineTypes[recipe.type]
+                local output = machineType.output
+                if output[3] then
+                    slotCount = output[3] - output[2]
+                else
+                    slotCount = 1
+                end
+            end
+            local item = VirtualInv.getCachedItemInfo(recipe.product)
+            local stackSize = item and item.maxCount or 1
+            limit = stackSize * slotCount
+            -- min(64) to avoid trying to craft with more than 64 items in a single input slot
+            -- TODO take into account input item stacksizes
+            limit = math.min(limit, 64 * recipe.produces)
+        elseif splitType == "SINGLE" then
+            limit = 1
+        end
+        local totalCrafts = 0
+        local splitTask
+        local remaining = count
+        while remaining > 0 do
+            local task, craftCount
+            if recipe.type == "grid" then
+                craftCount = math.ceil(math.min(remaining, limit) / recipe.produces)
+                task = this.craft.grid(recipe.product, recipe.items, recipe.recipe, craftCount)
+            else
+                task, craftCount = this.craft.generic(math.min(remaining, limit))
+                    :reserveMachine(recipe.type)
+                    :setRecipe(recipe.items, recipe.recipe, recipe.produces, recipe.product)
+                    :build()
+            end
+            local productID = ItemDescriptor.fromCoord(recipe.product):serialize()
+            local itemsCrafted = craftCount * recipe.produces
+            craftedItemCounts[productID] = (craftedItemCounts[productID] or 0) + itemsCrafted
+            totalCrafts = totalCrafts + craftCount
+            remaining = remaining - itemsCrafted
+            tasks[#tasks + 1] = task
+        end
+        local ingredientTask, usedItemCounts, craftedItemCounts = craftRequiredItems(recipe, totalCrafts,
+            usedItemCounts, craftedItemCounts)
+        logger.fdebug("Split craft of %d %s into %d parts, limit %d, crafting %d total.",
+            count, recipe.product, #tasks, limit, count - remaining)
+        splitTask = setmetatable(TaskLib.Task.new({ function()
+            logger.fdebug("Finished crafting %d of %s.", count - remaining, recipe.product)
+        end }, "SplitCraft"), QueableTask)
+        for k, v in ipairs(tasks) do
+            getRootTask(v):dependsOn(ingredientTask)
+            splitTask:addSubtask(v)
+        end
+        splitTask:addSubtask(ingredientTask)
+        return splitTask, usedItemCounts, craftedItemCounts
+    end
+
+    ---@param recipe RegisteredRecipe
+    ---@param count integer
+    ---@param usedItemCounts table<string,integer>
+    ---@param craftedItemCounts table<string,integer>
+    ---@return MachineCraftTask|TurtleCraftTask?
+    ---@return table<string,integer> usedItemCounts
+    ---@return table<string,integer> craftedItemCounts
+    local function tryCraft(recipe, count, usedItemCounts, craftedItemCounts)
+        -- TODO auto split count into multiple crafts
+        --  * For example, I ask for 128 furnaces, split it into two 64 furnace craft tasks.
+        --  * For furnaces, this depends on the fuel used, but for coal split 64 glass into 8 glass per furnace
+        --    Make this behavior optional, per machine type. Choose to prioritize distribution versus centralization.
+        logger.fdebug("Attempting to craft %d of %s.", count, recipe.product)
+        usedItemCounts = usedItemCounts or {}
+        craftedItemCounts = craftedItemCounts or {}
+        return splitCraft(recipe, count, usedItemCounts, craftedItemCounts)
     end
 
     -- TODO by default craft.craft should accept the first option that works
@@ -740,14 +829,16 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
 
     ---@param item ItemDescriptor|ItemCoordinate
     ---@param count integer
-    ---@param itemCounts table<string,integer>?
+    ---@param usedItemCounts table<string,integer>?
     ---@param alternative integer?
     ---@return MachineCraftTask|TurtleCraftTask?
-    ---@return table<string,integer> ItemDescriptor string, integer
-    function this.craft.craft(item, count, itemCounts, alternative)
+    ---@return table<string,integer> usedItemCounts string, integer
+    ---@return table<string,integer> craftedItemCounts string, integer
+    function this.craft.craft(item, count, usedItemCounts, craftedItemCounts, alternative)
         shrexpect({ "string|ItemDescriptor", "number", "table?", "number?" },
-            { item, count, itemCounts, alternative })
-        itemCounts = itemCounts or {}
+            { item, count, usedItemCounts, alternative })
+        usedItemCounts = usedItemCounts or {}
+        craftedItemCounts = craftedItemCounts or {}
         alternative = alternative or 1
         if type(item) == "table" then
             item = item:toCoord() or item
@@ -759,36 +850,41 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         local craftOptions = {}
         local task
         for i, v in pairs(registeredRecipes[item] or {}) do
-            local craftCount = clone(itemCounts)
-            task, craftCount = tryCraft(v, count, craftCount)
+            local usedCount, craftCount = clone(usedItemCounts), clone(craftedItemCounts)
+            task, usedCount, craftCount = tryCraft(v, count, usedCount, craftCount)
             if task then
-                craftOptions[#craftOptions + 1] = craftCount
+                craftOptions[#craftOptions + 1] = { usedCount, craftCount }
                 if #craftOptions == alternative then
                     break
                 end
             end
         end
-        return task, craftOptions[(alternative - 1) % #craftOptions + 1]
+        ---@diagnostic disable-next-line: redundant-return-value
+        return task, table.unpack(craftOptions[(alternative - 1) % #craftOptions + 1])
     end
 
     local turtleSlotList = { 1, 2, 3, 5, 6, 7, 9, 10, 11 }
     ---Create a task to craft a grid recipe using a turtle
+    ---@param product ItemCoordinate
     ---@param items ItemDescriptor[]
     ---@param recipe integer[]
     ---@param count integer
     ---@param r Reserve?
     ---@param callback function?
     ---@return TurtleCraftTask
-    function this.craft.grid(items, recipe, count, r, callback)
+    function this.craft.grid(product, items, recipe, count, r, callback)
         local turt
         local allocateTask = TaskLib.Task.new({ function()
             turt = allocateTurtle()
-        end }, "TurtleReserve")
+            logger.fdebug("Allocated turtle %s to craft %d of %s", turt, count, product)
+        end }, "TurtleReserve:" .. product)
         local function getTurtle()
             return turt
         end
+        local cleanTurtleTask = PullTask.new(r, "TurtleClean:" .. product):fromRange(getTurtle, 1, 16):addSubtask(
+            allocateTask)
         ---@type PushTask
-        local pushIngredientsTask = PushTask.new(r, "TurtlePush"):addSubtask(allocateTask) --[[@as PushTask]]
+        local pushIngredientsTask = PushTask.new(r, "TurtlePush:" .. product):addSubtask(cleanTurtleTask) --[[@as PushTask]]
         for i, v in ipairs(items) do
             local slots = {}
             for slot, item in pairs(recipe) do
@@ -799,23 +895,42 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
             pushIngredientsTask:distributeToSlots(getTurtle, v, slots, count)
         end
         local craftingTask = TaskLib.Task.new({ function()
-            wmodem.transmit(turtlePort, turtlePort, { "CRAFT", turt })
-            while true do
-                local e, side, channel, replyChannel, message = os.pullEvent("modem_message")
-                if type(message) == "table" and message[1] == "CRAFT_DONE" and message[2] == turt then
-                    break
+            local slots
+            tnet.host.send(turt, "CRAFT")
+            logger.fdebug("sent CRAFT to %s", turt)
+            local message = tnet.host.receive("CRAFT_DONE", turt)
+            slots = message[3]
+            logger.fdebug("%s CRAFT_DONE recieved", turt)
+            local movedProduct = 0
+            repeat
+                for i, v in pairs(slots) do
+                    local moved, item = this.reserve:pullItems(turt, i)
+                    if item == product then
+                        movedProduct = movedProduct + moved
+                    end
                 end
+                message = tnet.host.receive(nil, turt)
+                logger.fdebug("%s %s recieved.", turt, message[1])
+            until message[1] == "EMPTY"
+            tnet.host.send(turt, "ACK")
+            if next(message[3]) then
+                local s = ("Turtle %s claims it is EMPTY, but it isn't?"):format(turt)
+                logger.error(s)
+                error(s, 0)
             end
-        end }, "TurtleCraft"):addSubtask(pushIngredientsTask)
-        local pullProductTask = PullTask.new(r, "TurtlePull"):fromRange(getTurtle, 1, 16):addSubtask(craftingTask)
+            if movedProduct == 0 then
+                logger.fwarn("TurtleCraft task did not move any expected products (%s) after crafting.", product)
+            end
+            logger.debug("TurtleCraft pulled items.")
+        end }, "TurtleCraft:" .. product):addSubtask(pushIngredientsTask)
         local freeTask = TaskLib.Task.new({ function()
             freeTurtle(turt)
-        end }, "TurtleFree"):addSubtask(pullProductTask)
+        end }, "TurtleFree:" .. product):addSubtask(craftingTask)
 
         ---@type TurtleCraftTask
         local callbackTask = freeTask --[[@as TurtleCraftTask]] -- I LOVE LLS
         if callback then
-            callbackTask = TaskLib.Task.new({ callback }, "TurtleCallback"):addSubtask(freeTask) --[[@as TurtleCraftTask]]
+            callbackTask = TaskLib.Task.new({ callback }, "TurtleCallback:" .. product):addSubtask(freeTask) --[[@as TurtleCraftTask]]
         end
         callbackTask.rootTask = allocateTask
 
@@ -832,6 +947,8 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     ---@field name string
 
     ---@alias MachineProcess fun(craft:integer,invs:{[1]:string,[2]:integer}[]):function
+
+    ---@alias MachineSplitType "NONE"|"SLOTS"|"SINGLE"
 
     ---@class RegisteredMachineType
     ---@field slots SlotMap[]
@@ -887,7 +1004,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         local output = {
             rmachine.invs[outputInfo[1]], outputInfo[2], outputInfo[3]
         }
-        logger.finfo("Allocated Machine %s/%s", mtype, machine)
+        logger.fdebug("Allocated Machine %s/%s", mtype, machine)
         return machine, slotlut, output
     end
 
@@ -990,8 +1107,8 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
                 end
             end
         }, "MachineRegister:" .. machine.name)
-        clearTask:addSubtask(t)
-        this.scheduler.queueTask(clearTask)
+        t:addSubtask(clearTask)
+        this.scheduler.queueTask(t)
     end
 
     ---Register a machine of a given type
@@ -1372,10 +1489,23 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     loadPluginsTask:addSubtask(loadRecipeTask)
     this.scheduler.queueTask(loadPluginsTask)
 
+    local turtleListenThread = TaskLib.Task.new({ function()
+        while true do
+            local message = tnet.host.receive("NAME") --[[@as table]]
+            local k = message[2]
+            if allTurtles[k] then
+                logger.fwarn("Turtle resent discovery message, assuming it has been restarted.")
+            end
+            allTurtles[k] = true
+            freeTurtle(k)
+            logger.finfo("Found new turtle %s.", k)
+        end
+    end }, "TurtleSearch")
+    this.scheduler.queueTask(turtleListenThread)
+
     ---Start this wrapper's coroutine
     ---Does not return, run this in parallel (or another coroutine manager)
     function this.run()
-        wmodem.open(turtlePort)
         -- this.scheduler.queueTask(TaskLib.Task.new({ function()
         --     while true do
         --         debugOverlay()

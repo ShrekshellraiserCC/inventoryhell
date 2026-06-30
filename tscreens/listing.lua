@@ -130,6 +130,7 @@ tapi.register_screen("listing:craft_overview", {
             y = 4,
             list = "$required_item_list$",
             h = "h-5",
+            allow_sort = false,
             columns = {
                 { "name",  "w-10", "Name" },
                 { "count", nil,    "Count" }
@@ -157,11 +158,19 @@ tapi.register_screen("listing:craft_overview", {
 
 local function submit_craft_request(toCraft)
     cenv.request_info_string = ("Requesting to craft %dx %s."):format(toCraft, cenv.item.name)
-    local cid, required = capi.requestCraft(cenv.item.name, toCraft)
+    local cid, used, crafted = capi.requestCraft(cenv.item.name, toCraft)
     if cid then
         cenv.cid = cid
         cenv.required_item_list = {}
-        for k, v in pairs(required) do
+        cenv.required_item_list[1] = { name = "Crafting:", count = "" }
+        for k, v in pairs(crafted) do
+            cenv.required_item_list[#cenv.required_item_list + 1] = {
+                name = k,
+                count = v
+            }
+        end
+        cenv.required_item_list[#cenv.required_item_list + 1] = { name = "Using:", count = "" }
+        for k, v in pairs(used) do
             cenv.required_item_list[#cenv.required_item_list + 1] = {
                 name = k,
                 count = v

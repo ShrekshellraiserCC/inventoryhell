@@ -251,6 +251,15 @@ sset.program = registerSetting(
 sset.hid = registerSetting("boot:hid", "Storage Host ID", "number", nil, true, "global")
 sset.hmn = registerSetting("boot:hmn", "Storage Host Modem Name", "string", nil, true, "global")
 sset.installDir = registerSetting("boot:installDir", "Installation directory", "string", cwd, true, "global")
+sset.logLevel = registerSetting("sset:logLevel", "What minimum log level messages to record.", "string", "INFO", true,
+    "both", {
+        "FATAL",
+        "ERROR",
+        "WARN",
+        "INFO",
+        "DEBUG",
+        "TRACE"
+    })
 
 sset.debounceDelay = registerSetting("term:debounceDelay", "Debounce turtle_inventory by waiting this long.", "number",
     0.2, true)
@@ -299,9 +308,6 @@ sset.inventoryAllowPatterns = registerSetting("host:inventoryAllowPatterns",
     "Lua patterns to use when searching for inventories to use for storage", "table",
     { "chest.*" }, true, "global")
 
-sset.craftRotate = registerSetting("crafter:rotate", [[
-Should crafters rotate to indicate they have crafted an item.
-]], "boolean", true, false, "global")
 sset.craftDelay = registerSetting("crafter:delay", [[
 How long should be waited between frames on the crafter
 ]], "number", 0.1, false, "global")

@@ -5,11 +5,11 @@ local modem = peripheral.find("modem", function(name, wrapped)
     return not wrapped.isWireless()
 end) --[[@as WiredModem]]
 local sset = require "libs.sset"
-local clientlib = require "libs.clientlib"
+local clientlib = require "libs.clientlib" -- used to listen for reboot all messages.
 local shrekui = require "libs.shrekui"
+local tnet = require "libs.tnet"
 
-local turtlePort = 7777
-modem.open(turtlePort)
+tnet.open(modem)
 clientlib.open()
 turtle.select(16)
 
@@ -166,36 +166,41 @@ local function render()
     end
 end
 
-local function getUsedSlots()
-    local c = 0
-    for i = 1, 15 do
-        if not turtle.getItemDetail(i) then
-            break
+local crafted = false
+local function invwatch()
+    while true do
+        if crafted then
+            local used = tnet.turtle.getUsedSlots()
+            if next(used) then
+                tnet.turtle.broadcast("ITEMS", used)
+            else
+                tnet.turtle.broadcast("EMPTY")
+            end
+            sleep(1)
+        else
+            os.pullEvent("crafted")
         end
-        c = i
     end
-    return c
 end
 
 local function crafter()
     while true do
-        local e, side, channel, replyChannel, message = os.pullEvent("modem_message")
-        if type(message) == "table" then
-            if message[1] == "CRAFT" and message[2] == localName then
-                turtle.craft()
-                if sset.get(sset.craftRotate) then
-                    turtle.turnRight()
-                    turtle.turnLeft()
-                end
-                increment()
-                modem.transmit(replyChannel, channel, { "CRAFT_DONE", localName, getUsedSlots() })
-            elseif message[1] == "GET_NAME" then
-                modem.transmit(replyChannel, channel, { "NAME", localName })
-            end
+        local message = tnet.turtle.receive()
+        if message[1] == "CRAFT" and message[2] == localName then
+            turtle.craft()
+            sleep(0.05)
+            increment()
+            tnet.turtle.broadcast("CRAFT_DONE")
+            crafted = true
+            os.queueEvent("crafted")
+        elseif message[1] == "GET_NAME" then
+            tnet.turtle.broadcast()
+        elseif message[1] == "ACK" then
+            crafted = false
         end
     end
 end
 
 parallel.waitForAny(
-    render, crafter, sset.checkForChangesThread, clientlib.run
+    render, crafter, sset.checkForChangesThread, invwatch, clientlib.run
 )

@@ -95,6 +95,7 @@ local function progressBar(w, p)
 end
 
 local logProvider = slogger.new("HOST", "hostlog.txt")
+logProvider.setFilter(slogger.levels[sset.get(sset.logLevel)])
 logProvider.addTarget(function(s)
     log:log(s)
 end)
@@ -172,7 +173,7 @@ local function main(standalone)
     wenv.fstr = "Initialization Complete"
     local initTime = os.epoch("utc") - t0
     local info = inv.reserve:getSlotInfo()
-    log:flog("SSD initialized %d used (of %d total) slots in %.2f seconds", info.used, info.total, initTime / 1000)
+    logger.finfo("SSD initialized %d used (of %d total) slots in %.2f seconds", info.used, info.total, initTime / 1000)
 
 
     local messageHandlers = {}
@@ -195,7 +196,6 @@ local function main(standalone)
     end
 
     inv.scheduler.setErrorCallback(function(name, id)
-        logger.trace("setErrorCallback")
         hapi.notification("Thread Error", ("Thread (%s) on host errored! Check host log for details."):format(name))
     end)
 
@@ -313,11 +313,11 @@ local function main(standalone)
     local craftRequestCache = {}
     registerMessageHandler("requestCraft", function(msg)
         local coord = Coordinates.ItemCoordinate(msg.name)
-        local task, required = inv.craft.craft(coord, msg.count)
+        local task, used, crafted = inv.craft.craft(coord, msg.count)
         if task then
             lastCraftID = lastCraftID + 1
             craftRequestCache[lastCraftID] = task
-            return lastCraftID, required
+            return lastCraftID, used, crafted
         end
     end)
     registerMessageHandler("startCraft", function(msg)
@@ -326,6 +326,9 @@ local function main(standalone)
             task:queue()
             return true
         end
+    end)
+    registerMessageHandler("coredump", function(msg)
+        inv.reserve:validate()
     end)
 
     ---@param msg table
@@ -386,7 +389,8 @@ local function main(standalone)
                             side = "server",
                             id = msg.message.id
                         })
-                        log:flog("Error processing client request %s.\n%s", textutils.serialise(msg.message), result[2])
+                        logger.ferror("Error processing client request %s.\n%s", textutils.serialise(msg.message),
+                            result[2])
                     end
                 end
             else

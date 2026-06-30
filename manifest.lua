@@ -16,6 +16,7 @@ return {
         "slogger.lua",
         "sset.lua",
         "STL.lua",
+        "tnet.lua",
         ["update.lua"] = "https://raw.githubusercontent.com/ShrekshellraiserCC/inventoryhell/refs/heads/main/install.lua",
         "VirtualInv.lua",
     },
