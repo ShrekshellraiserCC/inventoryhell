@@ -6,6 +6,7 @@ local modem, localName, mname
 ---@param m WiredModem
 function tnet.open(m)
     modem = m
+    m.open(turtlePort)
     mname = peripheral.getName(m)
     localName = m.getNameLocal()
 end
@@ -81,8 +82,6 @@ function tnet.host.receive(filter, from, tid)
     while true do
         local e, side, channel, replyChannel, message = os.pullEvent()
         if e == "modem_message" and side == mname and channel == turtlePort and type(message) == "table" then
-            logger.fdebug("Recieved message %s, filter %s, from %s", textutils.serialise(message, { compact = true }),
-                filter, from)
             if from and message[2] ~= from then goto continue end
             if filter and message[1] ~= filter then goto continue end
             return message

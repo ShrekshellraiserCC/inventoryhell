@@ -156,28 +156,38 @@ tapi.register_screen("listing:craft_overview", {
     }
 }, nil, cenv)
 
+local logger = tapi.logger.logger("listing")
 local function submit_craft_request(toCraft)
     cenv.request_info_string = ("Requesting to craft %dx %s."):format(toCraft, cenv.item.name)
-    local cid, used, crafted = capi.requestCraft(cenv.item.name, toCraft)
+    local cid, info = capi.requestCraft(cenv.item.name, toCraft)
+    cenv.required_item_list = {}
+    cenv.required_item_list[1] = { name = "Crafting:", count = "" }
+    for k, v in pairs(info.craftedItems) do
+        cenv.required_item_list[#cenv.required_item_list + 1] = {
+            name = k,
+            count = v
+        }
+    end
+    cenv.required_item_list[#cenv.required_item_list + 1] = { name = "Using:", count = "" }
+    for k, v in pairs(info.usedItems) do
+        cenv.required_item_list[#cenv.required_item_list + 1] = {
+            name = k,
+            count = v
+        }
+    end
+    cenv.cid = nil
     if cid then
         cenv.cid = cid
-        cenv.required_item_list = {}
-        cenv.required_item_list[1] = { name = "Crafting:", count = "" }
-        for k, v in pairs(crafted) do
+    else
+        cenv.required_item_list[#cenv.required_item_list + 1] = { name = "Missing:", count = "" }
+        for k, v in pairs(info.missingItems) do
             cenv.required_item_list[#cenv.required_item_list + 1] = {
                 name = k,
                 count = v
             }
         end
-        cenv.required_item_list[#cenv.required_item_list + 1] = { name = "Using:", count = "" }
-        for k, v in pairs(used) do
-            cenv.required_item_list[#cenv.required_item_list + 1] = {
-                name = k,
-                count = v
-            }
-        end
-        tapi.open_screen("listing:craft_overview")
     end
+    tapi.open_screen("listing:craft_overview")
 end
 
 local function submit_request(count)

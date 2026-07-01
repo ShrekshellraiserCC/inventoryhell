@@ -187,8 +187,7 @@ end
 ---@param name string
 ---@param count integer
 ---@return integer? cid
----@return table<string,integer> used
----@return table<string,integer> crafted
+---@return ssd.libs.acl.CraftUsageInfo
 function clientlib.requestCraft(name, count)
     return sendAndRecieve({ type = "requestCraft", name = name, count = count })
 end

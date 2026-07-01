@@ -686,7 +686,8 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         return registeredMachineTypes[mtype]
     end
 
-    local function craftRequiredItems(recipe, craftCount, usedItemCounts, craftedItemCounts)
+    ---@param usageInfo ssd.libs.acl.CraftUsageInfo
+    local function craftRequiredItems(recipe, craftCount, usageInfo)
         local taskItemCounts = {}
         for _, item in pairs(recipe.recipe) do
             if type(item) == "number" then
@@ -700,23 +701,30 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         local craftSubtasks = {}
         for sid, need in pairs(taskItemCounts) do
             local id = ItemDescriptor.unserialize(sid)
-            local have = this.reserve:getCount(id) - (usedItemCounts[sid] or 0)
+            local have = this.reserve:getCount(id) - (usageInfo.usedItems[sid] or 0)
             local toCraft = need - have
             local consumed = math.min(have, need)
-            usedItemCounts[sid] = (usedItemCounts[sid] or 0) + consumed
+            if consumed > 0 then
+                usageInfo.usedItems[sid] = (usageInfo.usedItems[sid] or 0) + consumed
+            end
             logger.fdebug("Using %d of %s from storage to craft %s.", consumed, sid, recipe.product)
             if toCraft > 0 then
-                local task, newUsedItemCounts, newCraftedItemCounts = this.craft.craft(id, toCraft, usedItemCounts,
-                    craftedItemCounts)
-                if not task then
+                local task, newUsageInfo = this.craft.craft(id, toCraft, usageInfo)
+                if not newUsageInfo then
+                    logger.fwarn("No recipe to make %d of %s.", need - consumed, sid)
+                    usageInfo.missingItems[sid] = (usageInfo.missingItems[sid] or 0) + need - consumed
+                elseif not task then
                     -- There's not enough items in this inventory to satisfy this!
-                    logger.fwarn("Not enough %s available to craft %s!", sid, recipe.product)
-                    return nil, usedItemCounts, craftedItemCounts
+                    logger.fwarn("Missing %d of %s to craft %s.", need - consumed, sid, recipe.product)
                 end
                 craftSubtasks[#craftSubtasks + 1] = task
-                usedItemCounts = newUsedItemCounts
-                craftedItemCounts = newCraftedItemCounts
+                if newUsageInfo then
+                    usageInfo = newUsageInfo
+                end
             end
+        end
+        if next(usageInfo.missingItems) then
+            return nil, usageInfo
         end
         local task = TaskLib.Task.new({ function()
             logger.fdebug("Finished crafting ingredients for %d of %s.", craftCount * recipe.produces, recipe.product)
@@ -724,7 +732,7 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
         for _, stask in ipairs(craftSubtasks) do
             task:addSubtask(stask)
         end
-        return task, usedItemCounts, craftedItemCounts
+        return task, usageInfo
     end
 
     ---@param t Task
@@ -738,7 +746,9 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     end
 
     ---@param recipe RegisteredRecipe
-    local function splitCraft(recipe, count, usedItemCounts, craftedItemCounts)
+    ---@param count integer
+    ---@param usageInfo ssd.libs.acl.CraftUsageInfo
+    local function splitCraft(recipe, count, usageInfo)
         ---@type MachineSplitType
         local splitType = "NONE"
         ---@type MachineCraftTask[]
@@ -784,13 +794,16 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
             end
             local productID = ItemDescriptor.fromCoord(recipe.product):serialize()
             local itemsCrafted = craftCount * recipe.produces
-            craftedItemCounts[productID] = (craftedItemCounts[productID] or 0) + itemsCrafted
+            usageInfo.craftedItems[productID] = (usageInfo.craftedItems[productID] or 0) + itemsCrafted
             totalCrafts = totalCrafts + craftCount
             remaining = remaining - itemsCrafted
             tasks[#tasks + 1] = task
         end
-        local ingredientTask, usedItemCounts, craftedItemCounts = craftRequiredItems(recipe, totalCrafts,
-            usedItemCounts, craftedItemCounts)
+        local ingredientTask, usageInfo = craftRequiredItems(recipe, totalCrafts,
+            usageInfo)
+        if not ingredientTask or next(usageInfo.missingItems) then
+            return nil, usageInfo
+        end
         logger.fdebug("Split craft of %d %s into %d parts, limit %d, crafting %d total.",
             count, recipe.product, #tasks, limit, count - remaining)
         splitTask = setmetatable(TaskLib.Task.new({ function()
@@ -801,25 +814,21 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
             splitTask:addSubtask(v)
         end
         splitTask:addSubtask(ingredientTask)
-        return splitTask, usedItemCounts, craftedItemCounts
+        return splitTask, usageInfo
     end
 
     ---@param recipe RegisteredRecipe
     ---@param count integer
-    ---@param usedItemCounts table<string,integer>
-    ---@param craftedItemCounts table<string,integer>
+    ---@param usageInfo ssd.libs.acl.CraftUsageInfo
     ---@return MachineCraftTask|TurtleCraftTask?
-    ---@return table<string,integer> usedItemCounts
-    ---@return table<string,integer> craftedItemCounts
-    local function tryCraft(recipe, count, usedItemCounts, craftedItemCounts)
+    ---@return ssd.libs.acl.CraftUsageInfo
+    local function tryCraft(recipe, count, usageInfo)
         -- TODO auto split count into multiple crafts
         --  * For example, I ask for 128 furnaces, split it into two 64 furnace craft tasks.
         --  * For furnaces, this depends on the fuel used, but for coal split 64 glass into 8 glass per furnace
         --    Make this behavior optional, per machine type. Choose to prioritize distribution versus centralization.
         logger.fdebug("Attempting to craft %d of %s.", count, recipe.product)
-        usedItemCounts = usedItemCounts or {}
-        craftedItemCounts = craftedItemCounts or {}
-        return splitCraft(recipe, count, usedItemCounts, craftedItemCounts)
+        return splitCraft(recipe, count, usageInfo)
     end
 
     -- TODO by default craft.craft should accept the first option that works
@@ -827,18 +836,25 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
     -- allows for the user to scroll through possible crafts until they find
     -- one that isn't broken
 
+    ---@class ssd.libs.acl.CraftUsageInfo
+    ---@field usedItems table<string,integer>
+    ---@field craftedItems table<string,integer>
+    ---@field missingItems table<string,integer>
+
     ---@param item ItemDescriptor|ItemCoordinate
     ---@param count integer
-    ---@param usedItemCounts table<string,integer>?
+    ---@param usageInfo ssd.libs.acl.CraftUsageInfo?
     ---@param alternative integer?
     ---@return MachineCraftTask|TurtleCraftTask?
-    ---@return table<string,integer> usedItemCounts string, integer
-    ---@return table<string,integer> craftedItemCounts string, integer
-    function this.craft.craft(item, count, usedItemCounts, craftedItemCounts, alternative)
+    ---@return ssd.libs.acl.CraftUsageInfo?
+    function this.craft.craft(item, count, usageInfo, alternative)
         shrexpect({ "string|ItemDescriptor", "number", "table?", "number?" },
-            { item, count, usedItemCounts, alternative })
-        usedItemCounts = usedItemCounts or {}
-        craftedItemCounts = craftedItemCounts or {}
+            { item, count, usageInfo, alternative })
+        usageInfo = usageInfo or {
+            usedItems = {},
+            craftedItems = {},
+            missingItems = {}
+        }
         alternative = alternative or 1
         if type(item) == "table" then
             item = item:toCoord() or item
@@ -847,20 +863,22 @@ function lib.wrap(invList, wmodem, tracker, provider, registry)
             -- ItemDescriptor
             error("NYI")
         end
-        local craftOptions = {}
+        local lastOption = clone(usageInfo)
         local task
-        for i, v in pairs(registeredRecipes[item] or {}) do
-            local usedCount, craftCount = clone(usedItemCounts), clone(craftedItemCounts)
-            task, usedCount, craftCount = tryCraft(v, count, usedCount, craftCount)
+        if not registeredRecipes[item] then
+            return
+        end
+        for i, v in pairs(registeredRecipes[item]) do
+            local usageClone = clone(usageInfo)
+            task, usageClone = tryCraft(v, count, usageClone)
+            logger.fdebug("craft.craft(%s,%d):%d,%s", item, count, i, task)
+            lastOption = usageClone
             if task then
-                craftOptions[#craftOptions + 1] = { usedCount, craftCount }
-                if #craftOptions == alternative then
-                    break
-                end
+                return task, usageClone
             end
         end
         ---@diagnostic disable-next-line: redundant-return-value
-        return task, table.unpack(craftOptions[(alternative - 1) % #craftOptions + 1])
+        return nil, lastOption
     end
 
     local turtleSlotList = { 1, 2, 3, 5, 6, 7, 9, 10, 11 }

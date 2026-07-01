@@ -313,11 +313,13 @@ local function main(standalone)
     local craftRequestCache = {}
     registerMessageHandler("requestCraft", function(msg)
         local coord = Coordinates.ItemCoordinate(msg.name)
-        local task, used, crafted = inv.craft.craft(coord, msg.count)
+        local task, info = inv.craft.craft(coord, msg.count)
         if task then
             lastCraftID = lastCraftID + 1
             craftRequestCache[lastCraftID] = task
-            return lastCraftID, used, crafted
+            return lastCraftID, info
+        else
+            return false, info
         end
     end)
     registerMessageHandler("startCraft", function(msg)
@@ -336,7 +338,7 @@ local function main(standalone)
         if type(msg) ~= "table" then return end
         if msg.side == "server" then return end
         if messageHandlers[msg.type] then
-            return pcall(messageHandlers[msg.type], msg)
+            return xpcall(messageHandlers[msg.type], debug.traceback, msg)
         end
     end
 
