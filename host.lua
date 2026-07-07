@@ -20,9 +20,10 @@ end
 
 local chestList = {}
 local patternAllowList = sset.get(sset.inventoryAllowPatterns)
-for i, v in ipairs({ peripheral.find("inventory") }) do
-    local name = peripheral.getName(v)
+local totalInvCount = 0
+peripheral.find("inventory", function(name, v)
     local good = false
+    totalInvCount = totalInvCount + 1
     for _, pattern in ipairs(patternAllowList) do
         if name:match(pattern) then
             good = true
@@ -32,7 +33,8 @@ for i, v in ipairs({ peripheral.find("inventory") }) do
     if good then
         chestList[#chestList + 1] = name
     end
-end
+    return good
+end)
 
 
 local args = { ... }
@@ -99,8 +101,15 @@ logProvider.setFilter(slogger.levels[sset.get(sset.logLevel)])
 logProvider.addTarget(function(s)
     log:log(s)
 end)
+
+local logger = logProvider.logger("Host")
+logger.finfo("Found %d (out of %d) inventories matching host:inventoryAllowPatterns",
+    #chestList, totalInvCount)
+if #chestList == 0 and totalInvCount > 0 then
+    logger.fwarn("There are %d inventories attached, but none match host:inventoryAllowPatterns", totalInvCount)
+end
+
 local function main(standalone)
-    local logger = logProvider.logger("Host")
     -- Central host process for the storage system
     ---@alias Modem ccTweaked.peripherals.Modem
     local modem = peripheral.find("modem", function(name, wrapped)
