@@ -1,19 +1,23 @@
 ---@class SSDTermPluginENV
 _ENV = _ENV --[[@as SSDTermPluginENV]]
 
-_ENV.selected_setting = {}
-_ENV.selected_setting_evalue_l = ""
-_ENV.selected_setting_evalue_g = ""
+local cenv = {
+    selected_setting = {},
+    selected_setting_evalue_g = "",
+    selected_setting_evalue_l = ""
+}
+
+cenv.serialize = _ENV.utils.serialize
 local settings_list = {}
-local sset = _ENV.tapi.sset
+local sset = tapi.sset
 local function create_settings_list()
     settings_list = {}
     for i, v in ipairs(sset.settingList) do
         local value = sset.get(v)
         if value ~= nil and value == v.default then
-            value = tostring(value) .. "*"
+            value = cenv.serialize(value) .. "*"
         else
-            value = tostring(value)
+            value = cenv.serialize(value)
         end
         settings_list[i] = {
             name = v.name,
@@ -31,7 +35,7 @@ local function apply_settings_sort(s)
             sort[#sort + 1] = v
         end
     end
-    _ENV.settings = sort
+    cenv.settings = sort
 end
 create_settings_list()
 apply_settings_sort("")
@@ -40,24 +44,25 @@ local function setting_search_change(self, value)
     apply_settings_sort(value)
 end
 local function setting_select(self, item, idx)
-    _ENV.selected_setting = item
+    cenv.selected_setting = item
+    local raw = item.raw --[[@as RegisteredSetting]]
     local value = sset.get(item.raw)
     if value ~= nil and value == item.default then
         value = tostring(value) .. "*"
     else
         value = tostring(value)
     end
-    _ENV.selected_setting_evalue_g = tostring(item.raw.gvalue)
-    _ENV.selected_setting_evalue_l = tostring(item.raw.lvalue)
+    cenv.selected_setting_evalue_g = raw.gvalue == nil and "nil" or raw.gvalue
+    cenv.selected_setting_evalue_l = raw.lvalue == nil and "nil" or raw.lvalue
     tapi.open_screen("setting_edit")
 end
 
-_ENV.tapi.sset.onChangedCallback(function()
+tapi.sset.onChangedCallback(function()
     create_settings_list()
-    apply_settings_sort(_ENV.setting_search_bar)
+    apply_settings_sort(cenv.setting_search_bar)
 end)
 
-_ENV.tapi.register_screen("settings", {
+tapi.register_screen("settings", {
     type = "Screen",
     content = {
         {
@@ -66,7 +71,7 @@ _ENV.tapi.register_screen("settings", {
             text = "Settings",
             class = "heading"
         },
-        _ENV.back_button_template(),
+        back_button_template(),
         {
             type = "Input",
             x = 1,
@@ -105,30 +110,30 @@ _ENV.tapi.register_screen("settings", {
             on_select = setting_select
         }
     }
-})
+}, nil, cenv)
 
 
 
 local function save_setting(self)
-    local setting = _ENV.selected_setting.raw --[[@as RegisteredSetting]]
+    local setting = cenv.selected_setting.raw --[[@as RegisteredSetting]]
     if setting.side ~= "global" then
         ---@type string?
-        local evalue_l = _ENV.selected_setting_evalue_l
+        local evalue_l = cenv.selected_setting_evalue_l
         if evalue_l == "nil" then evalue_l = nil end
-        _ENV.tapi.sset.set(setting, evalue_l, true)
+        tapi.sset.set(setting, evalue_l, true)
     end
     ---@type string?
-    local evalue_g = _ENV.selected_setting_evalue_g
+    local evalue_g = cenv.selected_setting_evalue_g
     if evalue_g == "nil" then evalue_g = nil end
-    _ENV.tapi.sset.set(setting, evalue_g)
-    _ENV.tapi.sset.checkForChanges()
-    _ENV.tapi.back()
+    tapi.sset.set(setting, evalue_g)
+    tapi.sset.checkForChanges()
+    tapi.back()
     if setting.requiresReboot then
-        _ENV.tapi.open_screen("setting_reboot")
+        tapi.open_screen("setting_reboot")
     end
 end
 local function default_setting(self)
-    _ENV[self.meta] = "nil"
+    cenv[self.meta] = "nil"
 end
 
 local setting_edit_args = {
@@ -140,7 +145,7 @@ local setting_edit_args = {
             text = "Edit Setting",
             class = "heading"
         },
-        _ENV.back_button_template(),
+        back_button_template(),
         {
             type = "Frame",
             x = 1,
@@ -259,7 +264,7 @@ local setting_edit_args = {
                     y = 6,
                     w = "w-12",
                     h = 1,
-                    text = "$selected_setting.value$",
+                    text = "$serialize(selected_setting.value)$",
                     horizontal_alignment = "left"
                 },
                 {
@@ -277,7 +282,7 @@ local setting_edit_args = {
                     y = 7,
                     w = "w-12",
                     h = 1,
-                    text = "$tostring(selected_setting.raw.default)$",
+                    text = "$serialize(selected_setting.raw.default)$",
                     horizontal_alignment = "left"
                 },
                 {
@@ -320,7 +325,16 @@ local setting_edit_args = {
         }
     }
 }
-
+local function clone(t)
+    if type(t) == "table" then
+        local nt = {}
+        for k, v in pairs(t) do
+            nt[k] = clone(v)
+        end
+        return nt
+    end
+    return t
+end
 local setting_edit_content = setting_edit_args.content[3].content
 local function add_setting_edit_field(y, vstr, hstr)
     local w = "w-13"
@@ -332,7 +346,9 @@ local function add_setting_edit_field(y, vstr, hstr)
         w = w,
         h = 1,
         value = vstr,
-        hidden = "$selected_setting.raw.options or selected_setting.raw.type == 'boolean' or " .. hstr
+        hidden =
+            "$selected_setting.raw.options or (selected_setting.raw.type ~= 'string' and selected_setting.raw.type ~= 'number') or " ..
+            hstr
     }
     setting_edit_content[#setting_edit_content + 1] = {
         type = "Dropdown",
@@ -354,23 +370,55 @@ local function add_setting_edit_field(y, vstr, hstr)
         value = vstr,
         hidden = "$selected_setting.raw.type ~= 'boolean' or " .. hstr
     }
+    local vidx = vstr:sub(2, -2)
+    setting_edit_content[#setting_edit_content + 1] = {
+        type = "Button",
+        x = x,
+        y = y,
+        w = w,
+        h = 1,
+        text = "$serialize(" .. vidx .. ")$",
+        hidden = "$not (selected_setting.raw.type:match('%[%]') or selected_setting.raw.type == 'table') or " .. hstr,
+        on_click = function()
+            local v = cenv[vidx]
+            if v == "nil" then
+                local raw = cenv.selected_setting.raw --[[@as RegisteredSetting]]
+                if raw.default then
+                    v = clone(raw.default)
+                else
+                    v = {}
+                end
+            end
+            if cenv.selected_setting.raw.type == "table" then
+                utils.edit_table(v, cenv.selected_setting.raw.name, function(t)
+                    cenv[vidx] = t
+                end)
+            else
+                utils.edit_array(v, function(t)
+                    cenv[vidx] = t
+                end, function(s)
+                    return pcall(string.match, s, s)
+                end, "inventory")
+            end
+        end
+    }
 end
 add_setting_edit_field(4, "$selected_setting_evalue_g$", "selected_setting.raw.side == 'local'$")
 add_setting_edit_field(5, "$selected_setting_evalue_l$", "selected_setting.raw.side == 'global'$")
-_ENV.tapi.register_screen("setting_edit", setting_edit_args)
+tapi.register_screen("setting_edit", setting_edit_args, nil, cenv)
 
-_ENV.selected_setting = { raw = { side = "global" } }
+cenv.selected_setting = { raw = { side = "global" } }
 local function smart_reboot()
-    if _ENV.selected_setting.raw.side ~= "global" then
-        _ENV.reboot()
+    if cenv.selected_setting.raw.side ~= "global" then
+        reboot()
     end
-    _ENV.capi.rebootAll()
+    capi.rebootAll()
 end
 
-_ENV.tapi.register_screen("setting_reboot", {
+tapi.register_screen("setting_reboot", {
     type = "Screen",
     content = {
-        _ENV.back_button_template(),
+        back_button_template(),
         {
             type = "Text",
             h = 1,
@@ -412,11 +460,11 @@ _ENV.tapi.register_screen("setting_reboot", {
             text = "All",
             key = "enter",
             hidden = "$selected_setting.raw.side ~= 'both'$",
-            on_click = _ENV.capi.rebootAll,
+            on_click = capi.rebootAll,
             class = "danger-button"
         }
     }
-})
+}, nil, cenv)
 
 
-_ENV.tapi.register_menu_button(2, "Settings", "settings")
+tapi.register_menu_button(2, "Settings", "settings")

@@ -2,9 +2,11 @@
 local sset = {}
 package.path = package.path .. ";libs/?.lua"
 
+---@alias ssd.libs.sset.type type|"pattern[]"|"inventory[]"|"string[]"|"file[]"
+
 ---@class RegisteredSetting
 ---@field desc string
----@field type type
+---@field type ssd.libs.sset.type
 ---@field gvalue any
 ---@field lvalue any
 ---@field default any
@@ -119,6 +121,31 @@ local function setraw(name, value, loc, lset)
     elseif type(value) == s.type or value == nil then
         svalue = value
     end
+    if type(value) == "table" then
+        if s.type == "inventory[]" or s.type == "string[]" or s.type == "file[]" then
+            -- just make sure that it is a string[]
+            local valid = true
+            for k, v in ipairs(value) do
+                if type(v) ~= "string" then
+                    valid = false
+                end
+            end
+            if valid then
+                svalue = value
+            end
+        elseif s.type == "pattern[]" then
+            -- validate all the patterns
+            local valid = true
+            for k, v in ipairs(value) do
+                if type(v) ~= "string" or not pcall(string.match, v, v) then
+                    valid = false
+                end
+            end
+            if valid then
+                svalue = value
+            end
+        end
+    end
     if svalue ~= placeholder then
         if s.side == "local" or (s.side == "both" and loc) then
             s.lvalue = svalue
@@ -218,7 +245,7 @@ end
 ---Register a new type of setting
 ---@param name string
 ---@param desc string
----@param dType type
+---@param dType ssd.libs.sset.type
 ---@param default any
 ---@param requiresReboot boolean?
 ---@param side "global"|"local"|"both"?
@@ -305,7 +332,7 @@ sset.recipeCacheDir = registerSetting("host:recipeCacheDir",
     "What directory should the recipes be saved in. WARNING: Make sure to save your recipes after changing this!",
     "string", "/", true, "global")
 sset.inventoryAllowPatterns = registerSetting("host:inventoryAllowPatterns",
-    "Lua patterns to use when searching for inventories to use for storage", "table",
+    "Lua patterns to use when searching for inventories to use for storage", "pattern[]",
     { "chest.*" }, true, "global")
 
 sset.craftDelay = registerSetting("crafter:delay", [[
